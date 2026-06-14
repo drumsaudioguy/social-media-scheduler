@@ -1,42 +1,107 @@
 import os
 import pandas as pd
 import requests
+from datetime import datetime
+
+GOOGLE_SHEET_URL = "PASTE_YOUR_GOOGLE_SHEET_CSV_URL_HERE"
 
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 IG_ACCOUNT_ID = os.getenv("IG_ACCOUNT_ID")
 
-print("STARTING INSTAGRAM PUBLISH TEST")
+print("Loading Google Sheet...")
 
-df = pd.read_csv("posts.csv")
+df = pd.read_csv(GOOGLE_SHEET_URL)
 
-row = df.iloc[0]
+print(df)
 
-image_url = row["ImageURLs"]
-caption = row["Caption"]
+for index, row in df.iterrows():
 
-create_response = requests.post(
-f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
-data={
-"image_url": image_url,
-"caption": caption,
-"access_token": PAGE_ACCESS_TOKEN
-}
-)
+    status = str(row["Status"]).strip()
 
-print("CREATE RESPONSE")
-print(create_response.text)
+    if status != "Approved":
+        continue
 
-creation_id = create_response.json()["id"]
+    publish_dt = datetime.strptime(
+        f"{row['PublishDate']} {row['PublishTime']}",
+        "%Y-%m-%d %H:%M"
+    )
 
-publish_response = requests.post(
-f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
-data={
-"creation_id": creation_id,
-"access_token": PAGE_ACCESS_TOKEN
-}
-)
+    if datetime.now() < publish_dt:
+        continue
 
-print("PUBLISH RESPONSE")
-print(publish_response.text)
+    media_urls = str(row["MediaURLs"]).split("|")
 
-print("DONE")
+    media_ids = []
+
+    for media_url in media_urls:
+
+        media_url = media_url.strip()
+
+        print("Creating media:", media_url)
+
+        response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+            data={
+                "image_url": media_url,
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print(result)
+
+        if "id" not in result:
+            continue
+
+        media_ids.append(result["id"])
+
+    if len(media_ids) == 0:
+        continue
+
+    # SINGLE IMAGE
+
+    if len(media_ids) == 1:
+
+        publish_response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+            data={
+                "creation_id": media_ids[0],
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        print(publish_response.text)
+
+    # CAROUSEL
+
+    else:
+
+        carousel_response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+            data={
+                "media_type": "CAROUSEL",
+                "children": ",".join(media_ids),
+                "caption": row["Caption"],
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        carousel = carousel_response.json()
+
+        print(carousel)
+
+        if "id" not in carousel:
+            continue
+
+        publish_response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+            data={
+                "creation_id": carousel["id"],
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        print(publish_response.text)
+
+print("Finished")
