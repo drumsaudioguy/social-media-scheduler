@@ -16,92 +16,98 @@ print(df)
 
 for index, row in df.iterrows():
 
-    status = str(row["Status"]).strip()
+```
+status = str(row["Status"]).strip()
 
-    if status != "Approved":
-        continue
+if status != "Approved":
+    continue
 
-    publish_dt = datetime.strptime(
-        f"{row['PublishDate']} {row['PublishTime']}",
-        "%Y-%m-%d %H:%M"
+publish_dt = datetime.strptime(
+    f"{row['PublishDate']} {row['PublishTime']}",
+    "%Y-%m-%d %H:%M"
+)
+
+if datetime.now() < publish_dt:
+    continue
+
+media_urls = str(row["MediaURLs"]).split("|")
+
+media_ids = []
+
+for media_url in media_urls:
+
+    media_url = media_url.strip()
+
+    print("Creating media:", media_url)
+
+    response = requests.post(
+        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+        data={
+            "image_url": media_url,
+            "caption": str(row["Caption"]),
+            "access_token": PAGE_ACCESS_TOKEN
+        }
     )
 
-    if datetime.now() < publish_dt:
+    result = response.json()
+
+    print(result)
+
+    if "id" not in result:
         continue
 
-    media_urls = str(row["MediaURLs"]).split("|")
+    media_ids.append(result["id"])
 
-    media_ids = []
+if len(media_ids) == 0:
+    continue
 
-    for media_url in media_urls:
+# SINGLE IMAGE
 
-        media_url = media_url.strip()
+if len(media_ids) == 1:
 
-        print("Creating media:", media_url)
+    publish_response = requests.post(
+        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+        data={
+            "creation_id": media_ids[0],
+            "access_token": PAGE_ACCESS_TOKEN
+        }
+    )
 
-        response = requests.post(
-            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
-            data={
-                "image_url": media_url,
-                "access_token": PAGE_ACCESS_TOKEN
-            }
-        )
+    print("PUBLISH RESPONSE:")
+    print(publish_response.text)
 
-        result = response.json()
+# CAROUSEL
 
-        print(result)
+else:
 
-        if "id" not in result:
-            continue
+    carousel_response = requests.post(
+        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+        data={
+            "media_type": "CAROUSEL",
+            "children": ",".join(media_ids),
+            "caption": str(row["Caption"]),
+            "access_token": PAGE_ACCESS_TOKEN
+        }
+    )
 
-        media_ids.append(result["id"])
+    carousel = carousel_response.json()
 
-    if len(media_ids) == 0:
+    print("CAROUSEL RESPONSE:")
+    print(carousel)
+
+    if "id" not in carousel:
         continue
 
-    # SINGLE IMAGE
+    publish_response = requests.post(
+        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+        data={
+            "creation_id": carousel["id"],
+            "access_token": PAGE_ACCESS_TOKEN
+        }
+    )
 
-    if len(media_ids) == 1:
-
-        publish_response = requests.post(
-            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
-            data={
-                "creation_id": media_ids[0],
-                "access_token": PAGE_ACCESS_TOKEN
-            }
-        )
-
-        print(publish_response.text)
-
-    # CAROUSEL
-
-    else:
-
-        carousel_response = requests.post(
-            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
-            data={
-                "media_type": "CAROUSEL",
-                "children": ",".join(media_ids),
-                "caption": row["Caption"],
-                "access_token": PAGE_ACCESS_TOKEN
-            }
-        )
-
-        carousel = carousel_response.json()
-
-        print(carousel)
-
-        if "id" not in carousel:
-            continue
-
-        publish_response = requests.post(
-            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
-            data={
-                "creation_id": carousel["id"],
-                "access_token": PAGE_ACCESS_TOKEN
-            }
-        )
-
-        print(publish_response.text)
+    print("PUBLISH RESPONSE:")
+    print(publish_response.text)
+```
 
 print("Finished")
