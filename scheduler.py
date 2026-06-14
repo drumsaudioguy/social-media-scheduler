@@ -16,98 +16,92 @@ print(df)
 
 for index, row in df.iterrows():
 
-```
-status = str(row["Status"]).strip()
+    status = str(row["Status"]).strip()
 
-if status != "Approved":
-    continue
-
-publish_dt = datetime.strptime(
-    f"{row['PublishDate']} {row['PublishTime']}",
-    "%Y-%m-%d %H:%M"
-)
-
-if datetime.now() < publish_dt:
-    continue
-
-media_urls = str(row["MediaURLs"]).split("|")
-
-media_ids = []
-
-for media_url in media_urls:
-
-    media_url = media_url.strip()
-
-    print("Creating media:", media_url)
-
-    response = requests.post(
-        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
-        data={
-            "image_url": media_url,
-            "caption": str(row["Caption"]),
-            "access_token": PAGE_ACCESS_TOKEN
-        }
-    )
-
-    result = response.json()
-
-    print(result)
-
-    if "id" not in result:
+    if status != "Approved":
         continue
 
-    media_ids.append(result["id"])
-
-if len(media_ids) == 0:
-    continue
-
-# SINGLE IMAGE
-
-if len(media_ids) == 1:
-
-    publish_response = requests.post(
-        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
-        data={
-            "creation_id": media_ids[0],
-            "access_token": PAGE_ACCESS_TOKEN
-        }
+    publish_dt = datetime.strptime(
+        f"{row['PublishDate']} {row['PublishTime']}",
+        "%Y-%m-%d %H:%M"
     )
 
-    print("PUBLISH RESPONSE:")
-    print(publish_response.text)
-
-# CAROUSEL
-
-else:
-
-    carousel_response = requests.post(
-        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
-        data={
-            "media_type": "CAROUSEL",
-            "children": ",".join(media_ids),
-            "caption": str(row["Caption"]),
-            "access_token": PAGE_ACCESS_TOKEN
-        }
-    )
-
-    carousel = carousel_response.json()
-
-    print("CAROUSEL RESPONSE:")
-    print(carousel)
-
-    if "id" not in carousel:
+    if datetime.now() < publish_dt:
         continue
 
-    publish_response = requests.post(
-        f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
-        data={
-            "creation_id": carousel["id"],
-            "access_token": PAGE_ACCESS_TOKEN
-        }
-    )
+    media_urls = str(row["MediaURLs"]).split("|")
 
-    print("PUBLISH RESPONSE:")
-    print(publish_response.text)
-```
+    media_ids = []
+
+    for media_url in media_urls:
+
+        media_url = media_url.strip()
+
+        print("Creating media:", media_url)
+
+        response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+            data={
+                "image_url": media_url,
+                "caption": str(row["Caption"]),
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print(result)
+
+        if "id" not in result:
+            continue
+
+        media_ids.append(result["id"])
+
+    if len(media_ids) == 0:
+        continue
+
+    if len(media_ids) == 1:
+
+        publish_response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+            data={
+                "creation_id": media_ids[0],
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        print("PUBLISH RESPONSE:")
+        print(publish_response.text)
+
+    else:
+
+        carousel_response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+            data={
+                "media_type": "CAROUSEL",
+                "children": ",".join(media_ids),
+                "caption": str(row["Caption"]),
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        carousel = carousel_response.json()
+
+        print("CAROUSEL RESPONSE:")
+        print(carousel)
+
+        if "id" not in carousel:
+            continue
+
+        publish_response = requests.post(
+            f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+            data={
+                "creation_id": carousel["id"],
+                "access_token": PAGE_ACCESS_TOKEN
+            }
+        )
+
+        print("PUBLISH RESPONSE:")
+        print(publish_response.text)
 
 print("Finished")
