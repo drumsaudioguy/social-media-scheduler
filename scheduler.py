@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 
-GOOGLE_SHEET_URL = "PASTE_YOUR_GOOGLE_SHEET_CSV_URL_HERE"
+GOOGLE_SHEET_URL = "GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTxlq2ZA3rHKKWWu188u3uXYndlBlCs0wmQChH-Tz-Hg-BNxdyjTbWOCkJI2b5HfT3vC2WAnjqgnBta/pub?output=csv""
 
 PAGE_ACCESS_TOKEN = os.getenv("PAGE_ACCESS_TOKEN")
 IG_ACCOUNT_ID = os.getenv("IG_ACCOUNT_ID")
