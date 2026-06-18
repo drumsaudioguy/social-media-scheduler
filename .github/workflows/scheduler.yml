@@ -1,35 +1,37 @@
 name: Social Media Scheduler
 
 on:
-schedule:
-- cron: '*/15 * * * *'
-workflow_dispatch:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
 
 jobs:
-scheduler:
-runs-on: ubuntu-latest
+  scheduler:
+    runs-on: ubuntu-latest
 
-```
-steps:
-  - uses: actions/checkout@v4
+    steps:
+      - uses: actions/checkout@v4
 
-  - uses: actions/setup-python@v5
-    with:
-      python-version: '3.11'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-  - run: pip install pandas requests
+      - run: |
+          pip install pandas requests gspread oauth2client
 
-  - run: python scheduler.py
-    env:
-      MEINL_PERC_TOKEN: ${{ secrets.MEINL_PERC_TOKEN }}
-      MEINL_PERC_IG_ID: ${{ secrets.MEINL_PERC_IG_ID }}
+      - run: python scheduler.py
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
 
-      MEINL_CYM_TOKEN: ${{ secrets.MEINL_CYM_TOKEN }}
-      MEINL_CYM_IG_ID: ${{ secrets.MEINL_CYM_IG_ID }}
+          MEINL_PERC_TOKEN: ${{ secrets.MEINL_PERC_TOKEN }}
+          MEINL_PERC_IG_ID: ${{ secrets.MEINL_PERC_IG_ID }}
 
-      PEARL_TOKEN: ${{ secrets.PEARL_TOKEN }}
-      PEARL_IG_ID: ${{ secrets.PEARL_IG_ID }}
+          MEINL_CYM_TOKEN: ${{ secrets.MEINL_CYM_TOKEN }}
+          MEINL_CYM_IG_ID: ${{ secrets.MEINL_CYM_IG_ID }}
 
-      KM_TOKEN: ${{ secrets.KM_TOKEN }}
-      KM_IG_ID: ${{ secrets.KM_IG_ID }}
-```
+          PEARL_TOKEN: ${{ secrets.PEARL_TOKEN }}
+          PEARL_IG_ID: ${{ secrets.PEARL_IG_ID }}
+
+          KM_TOKEN: ${{ secrets.KM_TOKEN }}
+          KM_IG_ID: ${{ secrets.KM_IG_ID }}
