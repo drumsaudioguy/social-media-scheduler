@@ -7,19 +7,27 @@ on:
 
 jobs:
   scheduler:
+
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - run: |
-          pip install pandas requests gspread oauth2client
+      - name: Install Packages
+        run: |
+          pip install pandas
+          pip install requests
+          pip install gspread
+          pip install oauth2client
 
-      - run: python scheduler.py
+      - name: Run Scheduler
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
@@ -35,3 +43,5 @@ jobs:
 
           KM_TOKEN: ${{ secrets.KM_TOKEN }}
           KM_IG_ID: ${{ secrets.KM_IG_ID }}
+
+        run: python scheduler.py
