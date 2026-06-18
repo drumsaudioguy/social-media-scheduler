@@ -94,28 +94,10 @@ for index, row in df.iterrows():
 
         date_string = f"{row['PublishDate']} {row['PublishTime']}"
 
-        publish_datetime = None
-
-        try:
-            publish_datetime = datetime.strptime(
-                date_string,
-                "%d/%m/%Y %H:%M"
-            )
-        except:
-            pass
-
-        if publish_datetime is None:
-            try:
-                publish_datetime = datetime.strptime(
-                    date_string,
-                    "%Y-%m-%d %H:%M"
-                )
-            except:
-                pass
-
-        if publish_datetime is None:
-            print("INVALID DATE FORMAT:", date_string)
-            continue
+        publish_datetime = datetime.strptime(
+            date_string,
+            "%d-%m-%Y %H:%M"
+        )
 
         current_time = datetime.now()
 
@@ -176,8 +158,6 @@ for index, row in df.iterrows():
             print("No media created.")
             continue
 
-        # SINGLE IMAGE
-
         if len(media_ids) == 1:
 
             container_id = media_ids[0]
@@ -191,8 +171,6 @@ for index, row in df.iterrows():
             )
 
             publish_result = publish_response.json()
-
-        # CAROUSEL
 
         else:
 
