@@ -143,7 +143,7 @@ for index, row in df.iterrows():
             creation_id = create_result["id"]
 
             print("Waiting for Instagram processing...")
-            time.sleep(60)
+            time.sleep(180)
 
             publish_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
