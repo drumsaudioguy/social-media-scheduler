@@ -117,25 +117,25 @@ for index, row in df.iterrows():
         ACCESS_TOKEN = BRANDS[brand]["token"]
         IG_ACCOUNT_ID = BRANDS[brand]["ig_id"]
 
-        caption = str(row["Caption"])
+        caption = str(row["Caption"]).strip()
 
         media_urls = str(row["MediaURLs"]).split("|")
 
         media_ids = []
 
-        for media_url in media_urls:
+        # SINGLE IMAGE
 
-            media_url = media_url.strip()
+        if len(media_urls) == 1:
 
-            if media_url == "":
-                continue
+            media_url = media_urls[0].strip()
 
-            print("Creating media:", media_url)
+            print("Creating single image:", media_url)
 
             create_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
                 data={
                     "image_url": media_url,
+                    "caption": caption,
                     "access_token": ACCESS_TOKEN
                 }
             )
@@ -144,35 +144,56 @@ for index, row in df.iterrows():
 
             print(create_result)
 
-            if "id" in create_result:
-                media_ids.append(create_result["id"])
+            if "id" not in create_result:
 
-        if len(media_ids) == 0:
+                worksheet.update_cell(index + 2, 8, "Failed")
 
-            worksheet.update_cell(
-                index + 2,
-                8,
-                "Failed"
-            )
-
-            print("No media created.")
-            continue
-
-        if len(media_ids) == 1:
-
-            container_id = media_ids[0]
+                continue
 
             publish_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
                 data={
-                    "creation_id": container_id,
+                    "creation_id": create_result["id"],
                     "access_token": ACCESS_TOKEN
                 }
             )
 
             publish_result = publish_response.json()
 
+        # CAROUSEL
+
         else:
+
+            for media_url in media_urls:
+
+                media_url = media_url.strip()
+
+                if media_url == "":
+                    continue
+
+                print("Creating carousel image:", media_url)
+
+                create_response = requests.post(
+                    f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                    data={
+                        "image_url": media_url,
+                        "is_carousel_item": "true",
+                        "access_token": ACCESS_TOKEN
+                    }
+                )
+
+                create_result = create_response.json()
+
+                print(create_result)
+
+                if "id" in create_result:
+                    media_ids.append(create_result["id"])
+
+            if len(media_ids) == 0:
+
+                worksheet.update_cell(index + 2, 8, "Failed")
+
+                continue
 
             carousel_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
@@ -190,11 +211,7 @@ for index, row in df.iterrows():
 
             if "id" not in carousel_result:
 
-                worksheet.update_cell(
-                    index + 2,
-                    8,
-                    "Failed"
-                )
+                worksheet.update_cell(index + 2, 8, "Failed")
 
                 continue
 
@@ -213,11 +230,7 @@ for index, row in df.iterrows():
 
         if "id" in publish_result:
 
-            worksheet.update_cell(
-                index + 2,
-                8,
-                "Posted"
-            )
+            worksheet.update_cell(index + 2, 8, "Posted")
 
             worksheet.update_cell(
                 index + 2,
@@ -229,11 +242,7 @@ for index, row in df.iterrows():
 
         else:
 
-            worksheet.update_cell(
-                index + 2,
-                8,
-                "Failed"
-            )
+            worksheet.update_cell(index + 2, 8, "Failed")
 
             print("POST FAILED")
 
