@@ -861,14 +861,29 @@ for index, row in df.iterrows():
 
                 print("Cleaning up R2 files...")
 
+                all_deleted = True
                 for media_url in media_urls:
                     media_url = media_url.strip()
                     if media_url != "":
-                        delete_from_r2(media_url)
+                        result = delete_from_r2(media_url)
+                        if not result:
+                            all_deleted = False
+
+                worksheet.update_cell(
+                    index + 2,
+                    14,
+                    "Deleted" if all_deleted else "Partial Delete"
+                )
 
             else:
 
                 print("FACEBOOK POST FAILED - Instagram was still successful - R2 NOT deleted")
+
+                worksheet.update_cell(
+                    index + 2,
+                    14,
+                    "Kept - FB Failed"
+                )
 
         else:
 
@@ -876,6 +891,12 @@ for index, row in df.iterrows():
                 index + 2,
                 8,
                 "Failed"
+            )
+
+            worksheet.update_cell(
+                index + 2,
+                14,
+                "Kept - IG Failed"
             )
 
             print("INSTAGRAM POST FAILED")
