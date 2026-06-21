@@ -1,1 +1,1076 @@
+import os
+import json
+import time
+import hashlib
+import hmac
+import smtplib
+import urllib.parse
+from email.mime.text import MIMEText
+import pandas as pd
+import requests
+import gspread
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from oauth2client.service_account import ServiceAccountCredentials
+
+print("=================================")
+print("SOCIAL MEDIA SCHEDULER V6")
+print("=================================")
+
+# =========================
+# ALERT EMAIL CONFIG
+# =========================
+
+ALERT_EMAIL = "socialscheduler.india@gmail.com"
+ALERT_EMAIL_PASSWORD = os.getenv("ALERT_EMAIL_PASSWORD")
+
+
+def send_alert_email(subject, body):
+
+    try:
+
+        msg = MIMEText(body)
+        msg["Subject"] = subject
+        msg["From"] = ALERT_EMAIL
+        msg["To"] = ALERT_EMAIL
+
+        with smtplib.SMTP_SSL(
+            "smtp.gmail.com", 465
+        ) as server:
+            server.login(
+                ALERT_EMAIL,
+                ALERT_EMAIL_PASSWORD
+            )
+            server.send_message(msg)
+
+        print("ALERT EMAIL SENT:", subject)
+
+    except Exception as e:
+        print("EMAIL ERROR:", str(e))
+
+# =========================
+# GOOGLE AUTH
+# =========================
+
+scope = [
+    "https://spreadsheets.google.com/feeds",
+    "https://www.googleapis.com/auth/drive"
+]
+
+service_account_info = json.loads(
+    os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+)
+
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    service_account_info,
+    scope
+)
+
+client = gspread.authorize(creds)
+
+sheet = client.open_by_key(
+    os.environ["GOOGLE_SHEET_ID"]
+)
+
+worksheet = sheet.worksheet("Sheet1")
+
+history_sheet = sheet.worksheet("PostHistory")
+
+data = worksheet.get_all_records()
+
+df = pd.DataFrame(data)
+
+print(df)
+
+# =========================
+# BRANDS
+# =========================
+
+BRANDS = {
+
+    "Meinl Percussion": {
+        "token": os.getenv("MEINL_PERC_TOKEN"),
+        "ig_id": os.getenv("MEINL_PERC_IG_ID"),
+        "fb_page_id": "1491070334469768"
+    },
+
+    "Meinl Cymbals": {
+        "token": os.getenv("MEINL_CYM_TOKEN"),
+        "ig_id": os.getenv("MEINL_CYM_IG_ID"),
+        "fb_page_id": "1493683980877757"
+    },
+
+    "Pearl": {
+        "token": os.getenv("PEARL_TOKEN"),
+        "ig_id": os.getenv("PEARL_IG_ID"),
+        "fb_page_id": "983549558331087"
+    },
+
+    "Konig": {
+        "token": os.getenv("KM_TOKEN"),
+        "ig_id": os.getenv("KM_IG_ID"),
+        "fb_page_id": "101189549616697"
+    },
+
+    # Backward Compatibility
+
+    "Meinl Percussion India": {
+        "token": os.getenv("MEINL_PERC_TOKEN"),
+        "ig_id": os.getenv("MEINL_PERC_IG_ID"),
+        "fb_page_id": "1491070334469768"
+    },
+
+    "Meinl Cymbals India": {
+        "token": os.getenv("MEINL_CYM_TOKEN"),
+        "ig_id": os.getenv("MEINL_CYM_IG_ID"),
+        "fb_page_id": "1493683980877757"
+    },
+
+    "Pearl Drums India": {
+        "token": os.getenv("PEARL_TOKEN"),
+        "ig_id": os.getenv("PEARL_IG_ID"),
+        "fb_page_id": "983549558331087"
+    },
+
+    "Konig & Meyer India": {
+        "token": os.getenv("KM_TOKEN"),
+        "ig_id": os.getenv("KM_IG_ID"),
+        "fb_page_id": "101189549616697"
+    }
+
+}
+
+# =========================
+# META USER TOKEN
+# =========================
+
+META_USER_TOKEN = os.getenv(
+    "META_USER_TOKEN"
+)
+
+# =========================
+# TOKEN EXPIRY CHECK
+# =========================
+
+def check_token_expiry_alerts():
+
+    try:
+
+        now = datetime.now(timezone.utc)
+
+        for brand, config in BRANDS.items():
+
+            # Skip backward compat duplicates
+            if "India" in brand:
+                continue
+
+            token = config["token"]
+
+            if not token:
+                continue
+
+            response = requests.get(
+                "https://graph.facebook.com/debug_token",
+                params={
+                    "input_token": token,
+                    "access_token": META_USER_TOKEN
+                }
+            )
+
+            result = response.json()
+
+            expiry_ts = (
+                result
+                .get("data", {})
+                .get("data_access_expires_at")
+            )
+
+            if not expiry_ts:
+                continue
+
+            expiry_dt = datetime.fromtimestamp(
+                expiry_ts, tz=timezone.utc
+            )
+
+            days_left = (expiry_dt - now).days
+
+            print(f"Token Expiry - {brand}: {days_left} days left")
+
+            if days_left <= 7:
+
+                send_alert_email(
+                    subject=f"⚠️ Token Expiring Soon: {brand}",
+                    body=(
+                        f"The access token for {brand} "
+                        f"expires in {days_left} day(s).\n\n"
+                        f"Expiry Date: {expiry_dt.strftime('%d-%m-%Y %H:%M:%S')} UTC\n\n"
+                        f"Please renew it immediately to avoid posting failures."
+                    )
+                )
+
+    except Exception as e:
+        print("TOKEN EXPIRY CHECK ERROR:", str(e))
+
+
+print("Checking token expiry alerts...")
+check_token_expiry_alerts()
+
+# =========================
+# R2 CONFIG
+# =========================
+
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
+R2_BASE_URL = "https://pub-32b66fd1abca4fbb80e6e1facbabb289.r2.dev"
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+
+# =========================
+# R2 DELETE
+# =========================
+
+def delete_from_r2(media_url):
+
+    try:
+
+        # Extract filename from URL
+        filename = media_url.strip().replace(
+            R2_BASE_URL + "/", ""
+        )
+
+        if not filename or filename == media_url:
+            print("R2 DELETE: Could not extract filename from:", media_url)
+            return False
+
+        print("R2 DELETE: Deleting file:", filename)
+
+        # Build AWS Signature V4 for Cloudflare R2
+        now = datetime.utcnow()
+        date_stamp = now.strftime("%Y%m%d")
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+
+        method = "DELETE"
+        service = "s3"
+        region = "auto"
+        host = f"{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        canonical_uri = f"/{R2_BUCKET_NAME}/{urllib.parse.quote(filename)}"
+        canonical_querystring = ""
+        canonical_headers = f"host:{host}\nx-amz-date:{amz_date}\n"
+        signed_headers = "host;x-amz-date"
+        payload_hash = hashlib.sha256(b"").hexdigest()
+
+        canonical_request = "\n".join([
+            method,
+            canonical_uri,
+            canonical_querystring,
+            canonical_headers,
+            signed_headers,
+            payload_hash
+        ])
+
+        credential_scope = f"{date_stamp}/{region}/{service}/aws4_request"
+        string_to_sign = "\n".join([
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode()).hexdigest()
+        ])
+
+        def sign(key, msg):
+            return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+        signing_key = sign(
+            sign(
+                sign(
+                    sign(
+                        ("AWS4" + R2_SECRET_ACCESS_KEY).encode("utf-8"),
+                        date_stamp
+                    ),
+                    region
+                ),
+                service
+            ),
+            "aws4_request"
+        )
+
+        signature = hmac.new(
+            signing_key,
+            string_to_sign.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+        authorization = (
+            f"AWS4-HMAC-SHA256 Credential={R2_ACCESS_KEY_ID}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        )
+
+        delete_response = requests.delete(
+            f"{R2_ENDPOINT}/{R2_BUCKET_NAME}/{urllib.parse.quote(filename)}",
+            headers={
+                "x-amz-date": amz_date,
+                "Authorization": authorization,
+                "Host": host
+            }
+        )
+
+        if delete_response.status_code in [200, 204]:
+            print("R2 DELETE: Success -", filename)
+            return True
+        else:
+            print("R2 DELETE: Failed -", delete_response.status_code, delete_response.text)
+            return False
+
+    except Exception as e:
+        print("R2 DELETE ERROR:", str(e))
+        return False
+
+
+# =========================
+# TOKEN VALIDATION
+# =========================
+
+def validate_token(token, brand):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/v23.0/me",
+            params={
+                "access_token": token
+            }
+        )
+
+        result = response.json()
+
+        if "error" in result:
+
+            print("=================================")
+            print("TOKEN FAILED:", brand)
+            print(result)
+            print("=================================")
+
+            return False
+
+        print("TOKEN OK:", brand)
+
+        return True
+
+    except Exception as e:
+
+        print("TOKEN CHECK ERROR:", brand)
+        print(str(e))
+
+        return False
+
+
+def update_token_status(row_number, status):
+
+    worksheet.update_cell(
+        row_number,
+        10,
+        status
+    )
+
+
+def update_last_check(row_number):
+
+    worksheet.update_cell(
+        row_number,
+        11,
+        datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        ).strftime("%d-%m-%Y %H:%M:%S")
+    )
+
+
+def update_data_access_expiry(
+    token,
+    row_number
+):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/debug_token",
+            params={
+                "input_token": token,
+                "access_token": META_USER_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print("TOKEN DEBUG:")
+        print(result)
+
+        expiry = (
+            result
+            .get("data", {})
+            .get("data_access_expires_at")
+        )
+
+        if expiry:
+
+            expiry_date = datetime.fromtimestamp(
+                expiry
+            ).strftime(
+                "%d-%m-%Y %H:%M:%S"
+            )
+
+            worksheet.update_cell(
+                row_number,
+                12,
+                expiry_date
+            )
+
+    except Exception as e:
+
+        print(
+            "DATA ACCESS ERROR:",
+            str(e)
+        )
+
+
+def get_token_expiry(access_token):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/debug_token",
+            params={
+                "input_token": access_token,
+                "access_token": META_USER_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print("TOKEN DEBUG RESPONSE:")
+        print(result)
+
+        if (
+            "data" in result and
+            "data_access_expires_at" in result["data"]
+        ):
+
+            expiry_timestamp = result["data"][
+                "data_access_expires_at"
+            ]
+
+            expiry_date = datetime.fromtimestamp(
+                expiry_timestamp
+            )
+
+            return expiry_date.strftime(
+                "%d-%m-%Y"
+            )
+
+        return "Unknown"
+
+    except Exception as e:
+
+        print(
+            "TOKEN EXPIRY ERROR:",
+            str(e)
+        )
+
+        return "Unknown"
+
+
+# =========================
+# FACEBOOK POSTING
+# =========================
+
+def post_to_facebook(
+    content_type,
+    media_urls,
+    caption,
+    access_token,
+    fb_page_id
+):
+
+    try:
+
+        # ---- REEL ----
+        if content_type.lower() == "reel":
+
+            media_url = media_urls[0].strip()
+
+            print("FB: Uploading reel:", media_url)
+
+            upload_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/videos",
+                data={
+                    "file_url": media_url,
+                    "description": caption,
+                    "published": "true",
+                    "access_token": access_token
+                }
+            )
+
+            upload_result = upload_response.json()
+
+            print("FB Reel Result:", upload_result)
+
+            if "id" in upload_result:
+                return upload_result["id"]
+            else:
+                print("FB REEL FAILED:", upload_result)
+                return None
+
+        # ---- SINGLE IMAGE ----
+        elif len(media_urls) == 1:
+
+            media_url = media_urls[0].strip()
+
+            print("FB: Uploading image:", media_url)
+
+            photo_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/photos",
+                data={
+                    "url": media_url,
+                    "caption": caption,
+                    "published": "true",
+                    "access_token": access_token
+                }
+            )
+
+            photo_result = photo_response.json()
+
+            print("FB Image Result:", photo_result)
+
+            if "id" in photo_result:
+                return photo_result["id"]
+            else:
+                print("FB IMAGE FAILED:", photo_result)
+                return None
+
+        # ---- CAROUSEL ----
+        else:
+
+            fb_photo_ids = []
+
+            for media_url in media_urls:
+
+                media_url = media_url.strip()
+
+                if media_url == "":
+                    continue
+
+                print("FB: Uploading carousel image:", media_url)
+
+                photo_response = requests.post(
+                    f"https://graph.facebook.com/v23.0/{fb_page_id}/photos",
+                    data={
+                        "url": media_url,
+                        "published": "false",
+                        "access_token": access_token
+                    }
+                )
+
+                photo_result = photo_response.json()
+
+                print("FB Carousel Item:", photo_result)
+
+                if "id" in photo_result:
+                    fb_photo_ids.append(photo_result["id"])
+
+            if len(fb_photo_ids) == 0:
+                print("FB CAROUSEL FAILED: No images uploaded")
+                return None
+
+            attached_media = [
+                {"media_fbid": pid}
+                for pid in fb_photo_ids
+            ]
+
+            feed_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/feed",
+                json={
+                    "message": caption,
+                    "attached_media": attached_media,
+                    "access_token": access_token
+                }
+            )
+
+            feed_result = feed_response.json()
+
+            print("FB Carousel Result:", feed_result)
+
+            if "id" in feed_result:
+                return feed_result["id"]
+            else:
+                print("FB CAROUSEL FAILED:", feed_result)
+                return None
+
+    except Exception as e:
+
+        print("FB POST ERROR:", str(e))
+        return None
+
+
+# =========================
+# PROCESS POSTS
+# =========================
+
+for index, row in df.iterrows():
+
+    try:
+
+        worksheet.update_cell(
+            index + 2,
+            11,
+            datetime.now(
+                ZoneInfo("Asia/Kolkata")
+            ).strftime("%d-%m-%Y %H:%M:%S")
+        )
+
+        status = str(row["Status"]).strip()
+
+        post_id = str(row["PostID"]).strip()
+
+        if status == "Posted":
+            continue
+
+        if status != "Approved":
+            continue
+
+        if post_id != "":
+            print(
+                "ALREADY POSTED - SKIPPING"
+            )
+            continue
+
+        date_string = f"{row['PublishDate']} {row['PublishTime']}"
+
+        publish_datetime = datetime.strptime(
+            date_string,
+            "%d-%m-%Y %H:%M"
+        ).replace(
+            tzinfo=ZoneInfo("Asia/Kolkata")
+        )
+
+        current_time = datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        )
+
+        print("Scheduled:", publish_datetime)
+        print("Current:", current_time)
+        print("Timezone:", current_time.tzinfo)
+
+        if current_time < publish_datetime:
+
+            print("Not yet time to publish.")
+
+            continue
+
+        brand = str(row["Brand"]).strip()
+
+        if brand not in BRANDS:
+
+            print("Unknown Brand:", brand)
+
+            continue
+
+        ACCESS_TOKEN = BRANDS[brand]["token"]
+        IG_ACCOUNT_ID = BRANDS[brand]["ig_id"]
+        FB_PAGE_ID = BRANDS[brand]["fb_page_id"]
+
+        worksheet.update_cell(
+            index + 2,
+            10,
+            "Checking"
+        )
+
+        token_ok = validate_token(
+            ACCESS_TOKEN,
+            brand
+        )
+
+        update_last_check(
+            index + 2
+        )
+
+        if token_ok:
+
+            update_token_status(
+                index + 2,
+                "Valid"
+            )
+
+            update_data_access_expiry(
+                ACCESS_TOKEN,
+                index + 2
+            )
+
+        else:
+
+            update_token_status(
+                index + 2,
+                "Invalid"
+            )
+
+        if not token_ok:
+
+            worksheet.update_cell(
+                index + 2,
+                8,
+                "Failed - Invalid Token"
+            )
+
+            continue
+
+        content_type = str(row["ContentType"]).strip()
+
+        caption = str(row["Caption"]).strip()
+
+        media_urls = str(
+            row["MediaURLs"]
+        ).split("|")
+
+        print("Brand:", brand)
+        print("Type:", content_type)
+
+        media_ids = []
+
+        # =========================
+        # REEL
+        # =========================
+
+        if content_type.lower() == "reel":
+
+            media_url = media_urls[0].strip()
+
+            print("Creating reel:", media_url)
+
+            create_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "media_type": "REELS",
+                    "video_url": media_url,
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            create_result = create_response.json()
+
+            print(create_result)
+
+            if "error" in create_result:
+                print("REEL ERROR:")
+                print(create_result)
+
+            if "id" not in create_result:
+
+                worksheet.update_cell(
+                    index + 2,
+                    8,
+                    "Failed"
+                )
+
+                continue
+
+            creation_id = create_result["id"]
+
+            print("Polling reel status...")
+
+            max_wait = 900  # 15 minutes max
+            poll_interval = 30
+            elapsed = 0
+            reel_ready = False
+
+            while elapsed < max_wait:
+
+                status_response = requests.get(
+                    f"https://graph.facebook.com/v23.0/{creation_id}",
+                    params={
+                        "fields": "status_code",
+                        "access_token": ACCESS_TOKEN
+                    }
+                )
+
+                status_result = status_response.json()
+                reel_status = status_result.get("status_code", "")
+
+                print(f"Reel status: {reel_status} ({elapsed}s elapsed)")
+
+                if reel_status == "FINISHED":
+                    reel_ready = True
+                    break
+                elif reel_status == "ERROR":
+                    print("Reel processing ERROR from Instagram")
+                    break
+
+                time.sleep(poll_interval)
+                elapsed += poll_interval
+
+            if not reel_ready:
+
+                worksheet.update_cell(
+                    index + 2,
+                    8,
+                    "Failed - Reel Timeout"
+                )
+
+                worksheet.update_cell(
+                    index + 2,
+                    14,
+                    "Kept - IG Failed"
+                )
+
+                continue
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": creation_id,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        # =========================
+        # SINGLE IMAGE
+        # =========================
+
+        elif len(media_urls) == 1:
+
+            media_url = media_urls[0].strip()
+
+            print("Creating image:", media_url)
+
+            create_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "image_url": media_url,
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            create_result = create_response.json()
+
+            print(create_result)
+
+            if "id" not in create_result:
+
+                worksheet.update_cell(
+                    index + 2,
+                    8,
+                    "Failed"
+                )
+
+                continue
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": create_result["id"],
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        # =========================
+        # CAROUSEL
+        # =========================
+
+        else:
+
+            for media_url in media_urls:
+
+                media_url = media_url.strip()
+
+                if media_url == "":
+                    continue
+
+                print(
+                    "Creating carousel image:",
+                    media_url
+                )
+
+                create_response = requests.post(
+                    f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                    data={
+                        "image_url": media_url,
+                        "is_carousel_item": "true",
+                        "access_token": ACCESS_TOKEN
+                    }
+                )
+
+                create_result = create_response.json()
+
+                print(create_result)
+
+                if "id" in create_result:
+
+                    media_ids.append(
+                        create_result["id"]
+                    )
+
+            if len(media_ids) == 0:
+
+                worksheet.update_cell(
+                    index + 2,
+                    8,
+                    "Failed"
+                )
+
+                continue
+
+            carousel_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "media_type": "CAROUSEL",
+                    "children": ",".join(media_ids),
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            carousel_result = carousel_response.json()
+
+            print(carousel_result)
+
+            if "id" not in carousel_result:
+
+                worksheet.update_cell(
+                    index + 2,
+                    8,
+                    "Failed"
+                )
+
+                continue
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": carousel_result["id"],
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        print("Instagram Publish Result:")
+        print(publish_result)
+
+        if "id" in publish_result:
+
+            worksheet.update_cell(
+                index + 2,
+                8,
+                "Posted"
+            )
+
+            worksheet.update_cell(
+                index + 2,
+                9,
+                publish_result["id"]
+            )
+
+            print("INSTAGRAM POSTED SUCCESSFULLY")
+
+            # =========================
+            # FACEBOOK POSTING
+            # =========================
+
+            print("Now posting to Facebook...")
+
+            fb_post_id = post_to_facebook(
+                content_type,
+                media_urls,
+                caption,
+                ACCESS_TOKEN,
+                FB_PAGE_ID
+            )
+
+            if fb_post_id:
+
+                worksheet.update_cell(
+                    index + 2,
+                    13,
+                    fb_post_id
+                )
+
+                print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
+
+                # =========================
+                # R2 CLEANUP
+                # =========================
+
+                print("Cleaning up R2 files...")
+
+                all_deleted = True
+                for media_url in media_urls:
+                    media_url = media_url.strip()
+                    if media_url != "":
+                        result = delete_from_r2(media_url)
+                        if not result:
+                            all_deleted = False
+
+                worksheet.update_cell(
+                    index + 2,
+                    14,
+                    "Deleted" if all_deleted else "Partial Delete"
+                )
+
+                # =========================
+                # POST HISTORY LOG
+                # =========================
+
+                history_sheet.append_row([
+                    brand,
+                    str(row.get("Platform", "Instagram")),
+                    content_type,
+                    str(row.get("PublishDate", "")),
+                    datetime.now(
+                        ZoneInfo("Asia/Kolkata")
+                    ).strftime("%d-%m-%Y %H:%M:%S"),
+                    publish_result["id"],
+                    fb_post_id,
+                    "Posted"
+                ])
+
+                print("POST HISTORY LOGGED")
+
+            else:
+
+                print("FACEBOOK POST FAILED - Instagram was still successful - R2 NOT deleted")
+
+                worksheet.update_cell(
+                    index + 2,
+                    14,
+                    "Kept - FB Failed"
+                )
+
+        else:
+
+            worksheet.update_cell(
+                index + 2,
+                8,
+                "Failed"
+            )
+
+            worksheet.update_cell(
+                index + 2,
+                14,
+                "Kept - IG Failed"
+            )
+
+            print("INSTAGRAM POST FAILED")
+
+    except Exception as e:
+
+        print("ERROR:", str(e))
+
+
+print("=================================")
+print("SCHEDULER FINISHED")
+print("=================================")
