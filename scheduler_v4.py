@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("SOCIAL MEDIA SCHEDULER V4")
+print("SOCIAL MEDIA SCHEDULER V5")
 print("=================================")
 
 # =========================
@@ -96,6 +96,14 @@ BRANDS = {
 }
 
 # =========================
+# META USER TOKEN
+# =========================
+
+META_USER_TOKEN = os.getenv(
+    "META_USER_TOKEN"
+)
+
+# =========================
 # TOKEN VALIDATION
 # =========================
 
@@ -133,6 +141,120 @@ def validate_token(token, brand):
         return False
 
 
+def update_token_status(row_number, status):
+
+    worksheet.update_cell(
+        row_number,
+        10,
+        status
+    )
+
+
+def update_last_check(row_number):
+
+    worksheet.update_cell(
+        row_number,
+        11,
+        datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        ).strftime("%d-%m-%Y %H:%M:%S")
+    )
+
+
+def update_data_access_expiry(
+    token,
+    row_number
+):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/debug_token",
+            params={
+                "input_token": token,
+                "access_token": META_USER_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print("TOKEN DEBUG:")
+        print(result)
+
+        expiry = (
+            result
+            .get("data", {})
+            .get("expires_at")
+        )
+
+        if expiry:
+
+            expiry_date = datetime.fromtimestamp(
+                expiry
+            ).strftime(
+                "%d-%m-%Y %H:%M:%S"
+            )
+
+            worksheet.update_cell(
+                row_number,
+                12,
+                expiry_date
+            )
+
+    except Exception as e:
+
+        print(
+            "DATA ACCESS ERROR:",
+            str(e)
+        )
+
+
+def get_token_expiry(access_token):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/debug_token",
+            params={
+                "input_token": access_token,
+                "access_token": META_USER_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print("TOKEN DEBUG RESPONSE:")
+        print(result)
+
+        if (
+            "data" in result and
+            "data_access_expires_at" in result["data"]
+        ):
+
+            expiry_timestamp = result["data"][
+                "data_access_expires_at"
+            ]
+
+            expiry_date = datetime.fromtimestamp(
+                expiry_timestamp
+            )
+
+            return expiry_date.strftime(
+                "%d-%m-%Y"
+            )
+
+        return "Unknown"
+
+    except Exception as e:
+
+        print(
+            "TOKEN EXPIRY ERROR:",
+            str(e)
+        )
+
+        return "Unknown"
+
+
 # =========================
 # PROCESS POSTS
 # =========================
@@ -141,9 +263,28 @@ for index, row in df.iterrows():
 
     try:
 
+        worksheet.update_cell(
+            index + 2,
+            11,
+            datetime.now(
+                ZoneInfo("Asia/Kolkata")
+            ).strftime("%d-%m-%Y %H:%M:%S")
+        )
+
         status = str(row["Status"]).strip()
 
+        post_id = str(row["PostID"]).strip()
+
+        if status == "Posted":
+            continue
+
         if status != "Approved":
+            continue
+
+        if post_id != "":
+            print(
+                "ALREADY POSTED - SKIPPING"
+            )
             continue
 
         date_string = f"{row['PublishDate']} {row['PublishTime']}"
@@ -180,10 +321,41 @@ for index, row in df.iterrows():
         ACCESS_TOKEN = BRANDS[brand]["token"]
         IG_ACCOUNT_ID = BRANDS[brand]["ig_id"]
 
-        if not validate_token(
+        worksheet.update_cell(
+            index + 2,
+            10,
+            "Checking"
+        )
+
+        token_ok = validate_token(
             ACCESS_TOKEN,
             brand
-        ):
+        )
+
+        update_last_check(
+            index + 2
+        )
+
+        if token_ok:
+
+            update_token_status(
+                index + 2,
+                "Valid"
+            )
+
+            update_data_access_expiry(
+                ACCESS_TOKEN,
+                index + 2
+            )
+
+        else:
+
+            update_token_status(
+                index + 2,
+                "Invalid"
+            )
+
+        if not token_ok:
 
             worksheet.update_cell(
                 index + 2,
