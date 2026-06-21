@@ -53,44 +53,52 @@ BRANDS = {
 
     "Meinl Percussion": {
         "token": os.getenv("MEINL_PERC_TOKEN"),
-        "ig_id": os.getenv("MEINL_PERC_IG_ID")
+        "ig_id": os.getenv("MEINL_PERC_IG_ID"),
+        "fb_page_id": "1491070334469768"
     },
 
     "Meinl Cymbals": {
         "token": os.getenv("MEINL_CYM_TOKEN"),
-        "ig_id": os.getenv("MEINL_CYM_IG_ID")
+        "ig_id": os.getenv("MEINL_CYM_IG_ID"),
+        "fb_page_id": "1493683980877757"
     },
 
     "Pearl": {
         "token": os.getenv("PEARL_TOKEN"),
-        "ig_id": os.getenv("PEARL_IG_ID")
+        "ig_id": os.getenv("PEARL_IG_ID"),
+        "fb_page_id": "983549558331087"
     },
 
     "Konig": {
         "token": os.getenv("KM_TOKEN"),
-        "ig_id": os.getenv("KM_IG_ID")
+        "ig_id": os.getenv("KM_IG_ID"),
+        "fb_page_id": "101189549616697"
     },
 
     # Backward Compatibility
 
     "Meinl Percussion India": {
         "token": os.getenv("MEINL_PERC_TOKEN"),
-        "ig_id": os.getenv("MEINL_PERC_IG_ID")
+        "ig_id": os.getenv("MEINL_PERC_IG_ID"),
+        "fb_page_id": "1491070334469768"
     },
 
     "Meinl Cymbals India": {
         "token": os.getenv("MEINL_CYM_TOKEN"),
-        "ig_id": os.getenv("MEINL_CYM_IG_ID")
+        "ig_id": os.getenv("MEINL_CYM_IG_ID"),
+        "fb_page_id": "1493683980877757"
     },
 
     "Pearl Drums India": {
         "token": os.getenv("PEARL_TOKEN"),
-        "ig_id": os.getenv("PEARL_IG_ID")
+        "ig_id": os.getenv("PEARL_IG_ID"),
+        "fb_page_id": "983549558331087"
     },
 
     "Konig & Meyer India": {
         "token": os.getenv("KM_TOKEN"),
-        "ig_id": os.getenv("KM_IG_ID")
+        "ig_id": os.getenv("KM_IG_ID"),
+        "fb_page_id": "101189549616697"
     }
 
 }
@@ -184,7 +192,7 @@ def update_data_access_expiry(
         expiry = (
             result
             .get("data", {})
-            .get("expires_at")
+            .get("data_access_expires_at")
         )
 
         if expiry:
@@ -256,6 +264,138 @@ def get_token_expiry(access_token):
 
 
 # =========================
+# FACEBOOK POSTING
+# =========================
+
+def post_to_facebook(
+    content_type,
+    media_urls,
+    caption,
+    access_token,
+    fb_page_id
+):
+
+    try:
+
+        # ---- REEL ----
+        if content_type.lower() == "reel":
+
+            media_url = media_urls[0].strip()
+
+            print("FB: Uploading reel:", media_url)
+
+            upload_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/videos",
+                data={
+                    "file_url": media_url,
+                    "description": caption,
+                    "published": "true",
+                    "access_token": access_token
+                }
+            )
+
+            upload_result = upload_response.json()
+
+            print("FB Reel Result:", upload_result)
+
+            if "id" in upload_result:
+                return upload_result["id"]
+            else:
+                print("FB REEL FAILED:", upload_result)
+                return None
+
+        # ---- SINGLE IMAGE ----
+        elif len(media_urls) == 1:
+
+            media_url = media_urls[0].strip()
+
+            print("FB: Uploading image:", media_url)
+
+            photo_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/photos",
+                data={
+                    "url": media_url,
+                    "caption": caption,
+                    "published": "true",
+                    "access_token": access_token
+                }
+            )
+
+            photo_result = photo_response.json()
+
+            print("FB Image Result:", photo_result)
+
+            if "id" in photo_result:
+                return photo_result["id"]
+            else:
+                print("FB IMAGE FAILED:", photo_result)
+                return None
+
+        # ---- CAROUSEL ----
+        else:
+
+            fb_photo_ids = []
+
+            for media_url in media_urls:
+
+                media_url = media_url.strip()
+
+                if media_url == "":
+                    continue
+
+                print("FB: Uploading carousel image:", media_url)
+
+                photo_response = requests.post(
+                    f"https://graph.facebook.com/v23.0/{fb_page_id}/photos",
+                    data={
+                        "url": media_url,
+                        "published": "false",
+                        "access_token": access_token
+                    }
+                )
+
+                photo_result = photo_response.json()
+
+                print("FB Carousel Item:", photo_result)
+
+                if "id" in photo_result:
+                    fb_photo_ids.append(photo_result["id"])
+
+            if len(fb_photo_ids) == 0:
+                print("FB CAROUSEL FAILED: No images uploaded")
+                return None
+
+            attached_media = [
+                {"media_fbid": pid}
+                for pid in fb_photo_ids
+            ]
+
+            feed_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/feed",
+                json={
+                    "message": caption,
+                    "attached_media": attached_media,
+                    "access_token": access_token
+                }
+            )
+
+            feed_result = feed_response.json()
+
+            print("FB Carousel Result:", feed_result)
+
+            if "id" in feed_result:
+                return feed_result["id"]
+            else:
+                print("FB CAROUSEL FAILED:", feed_result)
+                return None
+
+    except Exception as e:
+
+        print("FB POST ERROR:", str(e))
+        return None
+
+
+# =========================
 # PROCESS POSTS
 # =========================
 
@@ -320,6 +460,7 @@ for index, row in df.iterrows():
 
         ACCESS_TOKEN = BRANDS[brand]["token"]
         IG_ACCOUNT_ID = BRANDS[brand]["ig_id"]
+        FB_PAGE_ID = BRANDS[brand]["fb_page_id"]
 
         worksheet.update_cell(
             index + 2,
@@ -556,7 +697,7 @@ for index, row in df.iterrows():
 
             publish_result = publish_response.json()
 
-        print("Publish Result:")
+        print("Instagram Publish Result:")
         print(publish_result)
 
         if "id" in publish_result:
@@ -573,7 +714,35 @@ for index, row in df.iterrows():
                 publish_result["id"]
             )
 
-            print("POSTED SUCCESSFULLY")
+            print("INSTAGRAM POSTED SUCCESSFULLY")
+
+            # =========================
+            # FACEBOOK POSTING
+            # =========================
+
+            print("Now posting to Facebook...")
+
+            fb_post_id = post_to_facebook(
+                content_type,
+                media_urls,
+                caption,
+                ACCESS_TOKEN,
+                FB_PAGE_ID
+            )
+
+            if fb_post_id:
+
+                worksheet.update_cell(
+                    index + 2,
+                    13,
+                    fb_post_id
+                )
+
+                print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
+
+            else:
+
+                print("FACEBOOK POST FAILED - Instagram was still successful")
 
         else:
 
@@ -583,7 +752,7 @@ for index, row in df.iterrows():
                 "Failed"
             )
 
-            print("POST FAILED")
+            print("INSTAGRAM POST FAILED")
 
     except Exception as e:
 
