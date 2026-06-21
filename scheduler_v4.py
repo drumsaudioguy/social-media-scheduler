@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import pandas as pd
 import requests
 import gspread
@@ -8,7 +9,7 @@ from datetime import datetime
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("SOCIAL MEDIA SCHEDULER V3")
+print("SOCIAL MEDIA SCHEDULER V4")
 print("=================================")
 
 # =========================
@@ -200,10 +201,60 @@ for index, row in df.iterrows():
         media_ids = []
 
         # =========================
+        # REEL
+        # =========================
+
+        if content_type.lower() == "reel":
+
+            media_url = media_urls[0].strip()
+
+            print("Creating reel:", media_url)
+
+            create_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "media_type": "REELS",
+                    "video_url": media_url,
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            create_result = create_response.json()
+
+            print(create_result)
+
+            if "id" not in create_result:
+
+                worksheet.update_cell(
+                    index + 2,
+                    8,
+                    "Failed"
+                )
+
+                continue
+
+            creation_id = create_result["id"]
+
+            print("Waiting for reel processing...")
+
+            time.sleep(60)
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": creation_id,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        # =========================
         # SINGLE IMAGE
         # =========================
 
-        if len(media_urls) == 1:
+        elif len(media_urls) == 1:
 
             media_url = media_urls[0].strip()
 
