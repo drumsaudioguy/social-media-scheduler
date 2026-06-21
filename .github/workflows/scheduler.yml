@@ -44,4 +44,4 @@ jobs:
           KM_TOKEN: ${{ secrets.KM_TOKEN }}
           KM_IG_ID: ${{ secrets.KM_IG_ID }}
 
-        run: python scheduler_v3.py
+        run: python scheduler_v4.py
