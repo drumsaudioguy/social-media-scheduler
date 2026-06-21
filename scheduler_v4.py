@@ -230,6 +230,10 @@ for index, row in df.iterrows():
 
             print(create_result)
 
+            if "error" in create_result:
+                print("REEL ERROR:")
+                print(create_result)
+
             if "id" not in create_result:
 
                 worksheet.update_cell(
