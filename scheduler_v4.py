@@ -1,6 +1,9 @@
 import os
 import json
 import time
+import hashlib
+import hmac
+import urllib.parse
 import pandas as pd
 import requests
 import gspread
@@ -110,6 +113,118 @@ BRANDS = {
 META_USER_TOKEN = os.getenv(
     "META_USER_TOKEN"
 )
+
+# =========================
+# R2 CONFIG
+# =========================
+
+R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
+R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
+R2_BASE_URL = "https://pub-32b66fd1abca4fbb80e6e1facbabb289.r2.dev"
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+
+# =========================
+# R2 DELETE
+# =========================
+
+def delete_from_r2(media_url):
+
+    try:
+
+        # Extract filename from URL
+        filename = media_url.strip().replace(
+            R2_BASE_URL + "/", ""
+        )
+
+        if not filename or filename == media_url:
+            print("R2 DELETE: Could not extract filename from:", media_url)
+            return False
+
+        print("R2 DELETE: Deleting file:", filename)
+
+        # Build AWS Signature V4 for Cloudflare R2
+        now = datetime.utcnow()
+        date_stamp = now.strftime("%Y%m%d")
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+
+        method = "DELETE"
+        service = "s3"
+        region = "auto"
+        host = f"{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+        canonical_uri = f"/{R2_BUCKET_NAME}/{urllib.parse.quote(filename)}"
+        canonical_querystring = ""
+        canonical_headers = f"host:{host}\nx-amz-date:{amz_date}\n"
+        signed_headers = "host;x-amz-date"
+        payload_hash = hashlib.sha256(b"").hexdigest()
+
+        canonical_request = "\n".join([
+            method,
+            canonical_uri,
+            canonical_querystring,
+            canonical_headers,
+            signed_headers,
+            payload_hash
+        ])
+
+        credential_scope = f"{date_stamp}/{region}/{service}/aws4_request"
+        string_to_sign = "\n".join([
+            "AWS4-HMAC-SHA256",
+            amz_date,
+            credential_scope,
+            hashlib.sha256(canonical_request.encode()).hexdigest()
+        ])
+
+        def sign(key, msg):
+            return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+
+        signing_key = sign(
+            sign(
+                sign(
+                    sign(
+                        ("AWS4" + R2_SECRET_ACCESS_KEY).encode("utf-8"),
+                        date_stamp
+                    ),
+                    region
+                ),
+                service
+            ),
+            "aws4_request"
+        )
+
+        signature = hmac.new(
+            signing_key,
+            string_to_sign.encode("utf-8"),
+            hashlib.sha256
+        ).hexdigest()
+
+        authorization = (
+            f"AWS4-HMAC-SHA256 Credential={R2_ACCESS_KEY_ID}/{credential_scope}, "
+            f"SignedHeaders={signed_headers}, Signature={signature}"
+        )
+
+        delete_response = requests.delete(
+            f"{R2_ENDPOINT}/{R2_BUCKET_NAME}/{urllib.parse.quote(filename)}",
+            headers={
+                "x-amz-date": amz_date,
+                "Authorization": authorization,
+                "Host": host
+            }
+        )
+
+        if delete_response.status_code in [200, 204]:
+            print("R2 DELETE: Success -", filename)
+            return True
+        else:
+            print("R2 DELETE: Failed -", delete_response.status_code, delete_response.text)
+            return False
+
+    except Exception as e:
+        print("R2 DELETE ERROR:", str(e))
+        return False
+
 
 # =========================
 # TOKEN VALIDATION
@@ -740,9 +855,20 @@ for index, row in df.iterrows():
 
                 print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
 
+                # =========================
+                # R2 CLEANUP
+                # =========================
+
+                print("Cleaning up R2 files...")
+
+                for media_url in media_urls:
+                    media_url = media_url.strip()
+                    if media_url != "":
+                        delete_from_r2(media_url)
+
             else:
 
-                print("FACEBOOK POST FAILED - Instagram was still successful")
+                print("FACEBOOK POST FAILED - Instagram was still successful - R2 NOT deleted")
 
         else:
 
