@@ -6,6 +6,7 @@ import requests
 import gspread
 
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
@@ -150,12 +151,17 @@ for index, row in df.iterrows():
         publish_datetime = datetime.strptime(
             date_string,
             "%d-%m-%Y %H:%M"
+        ).replace(
+            tzinfo=ZoneInfo("Asia/Kolkata")
         )
 
-        current_time = datetime.now()
+        current_time = datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        )
 
         print("Scheduled:", publish_datetime)
         print("Current:", current_time)
+        print("Timezone:", current_time.tzinfo)
 
         if current_time < publish_datetime:
 
@@ -238,7 +244,7 @@ for index, row in df.iterrows():
 
             print("Waiting for reel processing...")
 
-            time.sleep(60)
+            time.sleep(180)
 
             publish_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
