@@ -1,53 +1,18 @@
 import os
 import json
 import time
-import hashlib
-import hmac
-import smtplib
-import urllib.parse
-from email.mime.text import MIMEText
 import pandas as pd
 import requests
 import gspread
 
-from datetime import datetime
+from datetime import datetime, timezone
+import boto3
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
 print("SOCIAL MEDIA SCHEDULER V6")
 print("=================================")
-
-# =========================
-# ALERT EMAIL CONFIG
-# =========================
-
-ALERT_EMAIL = "socialscheduler.india@gmail.com"
-ALERT_EMAIL_PASSWORD = os.getenv("ALERT_EMAIL_PASSWORD")
-
-
-def send_alert_email(subject, body):
-
-    try:
-
-        msg = MIMEText(body)
-        msg["Subject"] = subject
-        msg["From"] = ALERT_EMAIL
-        msg["To"] = ALERT_EMAIL
-
-        with smtplib.SMTP_SSL(
-            "smtp.gmail.com", 465
-        ) as server:
-            server.login(
-                ALERT_EMAIL,
-                ALERT_EMAIL_PASSWORD
-            )
-            server.send_message(msg)
-
-        print("ALERT EMAIL SENT:", subject)
-
-    except Exception as e:
-        print("EMAIL ERROR:", str(e))
 
 # =========================
 # GOOGLE AUTH
@@ -74,8 +39,6 @@ sheet = client.open_by_key(
 )
 
 worksheet = sheet.worksheet("Sheet1")
-
-history_sheet = sheet.worksheet("PostHistory")
 
 data = worksheet.get_all_records()
 
@@ -150,182 +113,56 @@ META_USER_TOKEN = os.getenv(
 )
 
 # =========================
-# TOKEN EXPIRY CHECK
+# R2 CLIENT (boto3)
 # =========================
 
-def check_token_expiry_alerts():
-
-    try:
-
-        now = datetime.now(timezone.utc)
-
-        for brand, config in BRANDS.items():
-
-            # Skip backward compat duplicates
-            if "India" in brand:
-                continue
-
-            token = config["token"]
-
-            if not token:
-                continue
-
-            response = requests.get(
-                "https://graph.facebook.com/debug_token",
-                params={
-                    "input_token": token,
-                    "access_token": META_USER_TOKEN
-                }
-            )
-
-            result = response.json()
-
-            expiry_ts = (
-                result
-                .get("data", {})
-                .get("data_access_expires_at")
-            )
-
-            if not expiry_ts:
-                continue
-
-            expiry_dt = datetime.fromtimestamp(
-                expiry_ts, tz=timezone.utc
-            )
-
-            days_left = (expiry_dt - now).days
-
-            print(f"Token Expiry - {brand}: {days_left} days left")
-
-            if days_left <= 7:
-
-                send_alert_email(
-                    subject=f"⚠️ Token Expiring Soon: {brand}",
-                    body=(
-                        f"The access token for {brand} "
-                        f"expires in {days_left} day(s).\n\n"
-                        f"Expiry Date: {expiry_dt.strftime('%d-%m-%Y %H:%M:%S')} UTC\n\n"
-                        f"Please renew it immediately to avoid posting failures."
-                    )
-                )
-
-    except Exception as e:
-        print("TOKEN EXPIRY CHECK ERROR:", str(e))
-
-
-print("Checking token expiry alerts...")
-check_token_expiry_alerts()
-
-# =========================
-# R2 CONFIG
-# =========================
-
+R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
 R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
 R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
-R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
-R2_BASE_URL = "https://pub-32b66fd1abca4fbb80e6e1facbabb289.r2.dev"
-R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+r2_client = boto3.client(
+    "s3",
+    endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+    aws_access_key_id=R2_ACCESS_KEY_ID,
+    aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+    region_name="auto"
+)
 
 
-# =========================
-# R2 DELETE
-# =========================
+def delete_r2_files(media_urls):
 
-def delete_from_r2(media_url):
+    for media_url in media_urls:
 
-    try:
+        media_url = media_url.strip()
 
-        # Extract filename from URL
-        filename = media_url.strip().replace(
-            R2_BASE_URL + "/", ""
-        )
+        if not media_url:
+            continue
 
-        if not filename or filename == media_url:
-            print("R2 DELETE: Could not extract filename from:", media_url)
-            return False
+        try:
 
-        print("R2 DELETE: Deleting file:", filename)
+            # Extract the key from the URL
+            # e.g. https://pub-xxx.r2.dev/Pearl/file.jpg → Pearl/file.jpg
+            parts = media_url.split(".r2.dev/")
 
-        # Build AWS Signature V4 for Cloudflare R2
-        now = datetime.utcnow()
-        date_stamp = now.strftime("%Y%m%d")
-        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+            if len(parts) < 2:
+                print("R2 DELETE: Could not parse URL:", media_url)
+                continue
 
-        method = "DELETE"
-        service = "s3"
-        region = "auto"
-        host = f"{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-        canonical_uri = f"/{R2_BUCKET_NAME}/{urllib.parse.quote(filename)}"
-        canonical_querystring = ""
-        canonical_headers = f"host:{host}\nx-amz-date:{amz_date}\n"
-        signed_headers = "host;x-amz-date"
-        payload_hash = hashlib.sha256(b"").hexdigest()
+            file_key = parts[1]
 
-        canonical_request = "\n".join([
-            method,
-            canonical_uri,
-            canonical_querystring,
-            canonical_headers,
-            signed_headers,
-            payload_hash
-        ])
+            print("R2 DELETE: Deleting file:", file_key)
 
-        credential_scope = f"{date_stamp}/{region}/{service}/aws4_request"
-        string_to_sign = "\n".join([
-            "AWS4-HMAC-SHA256",
-            amz_date,
-            credential_scope,
-            hashlib.sha256(canonical_request.encode()).hexdigest()
-        ])
+            r2_client.delete_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=file_key
+            )
 
-        def sign(key, msg):
-            return hmac.new(key, msg.encode("utf-8"), hashlib.sha256).digest()
+            print("R2 DELETE: Success:", file_key)
 
-        signing_key = sign(
-            sign(
-                sign(
-                    sign(
-                        ("AWS4" + R2_SECRET_ACCESS_KEY).encode("utf-8"),
-                        date_stamp
-                    ),
-                    region
-                ),
-                service
-            ),
-            "aws4_request"
-        )
+        except Exception as e:
 
-        signature = hmac.new(
-            signing_key,
-            string_to_sign.encode("utf-8"),
-            hashlib.sha256
-        ).hexdigest()
-
-        authorization = (
-            f"AWS4-HMAC-SHA256 Credential={R2_ACCESS_KEY_ID}/{credential_scope}, "
-            f"SignedHeaders={signed_headers}, Signature={signature}"
-        )
-
-        delete_response = requests.delete(
-            f"{R2_ENDPOINT}/{R2_BUCKET_NAME}/{urllib.parse.quote(filename)}",
-            headers={
-                "x-amz-date": amz_date,
-                "Authorization": authorization,
-                "Host": host
-            }
-        )
-
-        if delete_response.status_code in [200, 204]:
-            print("R2 DELETE: Success -", filename)
-            return True
-        else:
-            print("R2 DELETE: Failed -", delete_response.status_code, delete_response.text)
-            return False
-
-    except Exception as e:
-        print("R2 DELETE ERROR:", str(e))
-        return False
+            print("R2 DELETE ERROR:", str(e))
 
 
 # =========================
@@ -718,7 +555,7 @@ for index, row in df.iterrows():
             worksheet.update_cell(
                 index + 2,
                 8,
-                "Failed - Invalid Token"
+                "Failed"
             )
 
             continue
@@ -776,53 +613,9 @@ for index, row in df.iterrows():
 
             creation_id = create_result["id"]
 
-            print("Polling reel status...")
+            print("Waiting for reel processing...")
 
-            max_wait = 900  # 15 minutes max
-            poll_interval = 30
-            elapsed = 0
-            reel_ready = False
-
-            while elapsed < max_wait:
-
-                status_response = requests.get(
-                    f"https://graph.facebook.com/v23.0/{creation_id}",
-                    params={
-                        "fields": "status_code",
-                        "access_token": ACCESS_TOKEN
-                    }
-                )
-
-                status_result = status_response.json()
-                reel_status = status_result.get("status_code", "")
-
-                print(f"Reel status: {reel_status} ({elapsed}s elapsed)")
-
-                if reel_status == "FINISHED":
-                    reel_ready = True
-                    break
-                elif reel_status == "ERROR":
-                    print("Reel processing ERROR from Instagram")
-                    break
-
-                time.sleep(poll_interval)
-                elapsed += poll_interval
-
-            if not reel_ready:
-
-                worksheet.update_cell(
-                    index + 2,
-                    8,
-                    "Failed - Reel Timeout"
-                )
-
-                worksheet.update_cell(
-                    index + 2,
-                    14,
-                    "Kept - IG Failed"
-                )
-
-                continue
+            time.sleep(180)
 
             publish_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
@@ -1001,54 +794,9 @@ for index, row in df.iterrows():
 
                 print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
 
-                # =========================
-                # R2 CLEANUP
-                # =========================
-
-                print("Cleaning up R2 files...")
-
-                all_deleted = True
-                for media_url in media_urls:
-                    media_url = media_url.strip()
-                    if media_url != "":
-                        result = delete_from_r2(media_url)
-                        if not result:
-                            all_deleted = False
-
-                worksheet.update_cell(
-                    index + 2,
-                    14,
-                    "Deleted" if all_deleted else "Partial Delete"
-                )
-
-                # =========================
-                # POST HISTORY LOG
-                # =========================
-
-                history_sheet.append_row([
-                    brand,
-                    str(row.get("Platform", "Instagram")),
-                    content_type,
-                    str(row.get("PublishDate", "")),
-                    datetime.now(
-                        ZoneInfo("Asia/Kolkata")
-                    ).strftime("%d-%m-%Y %H:%M:%S"),
-                    publish_result["id"],
-                    fb_post_id,
-                    "Posted"
-                ])
-
-                print("POST HISTORY LOGGED")
-
             else:
 
-                print("FACEBOOK POST FAILED - Instagram was still successful - R2 NOT deleted")
-
-                worksheet.update_cell(
-                    index + 2,
-                    14,
-                    "Kept - FB Failed"
-                )
+                print("FACEBOOK POST FAILED - Instagram was still successful")
 
         else:
 
@@ -1056,12 +804,6 @@ for index, row in df.iterrows():
                 index + 2,
                 8,
                 "Failed"
-            )
-
-            worksheet.update_cell(
-                index + 2,
-                14,
-                "Kept - IG Failed"
             )
 
             print("INSTAGRAM POST FAILED")
