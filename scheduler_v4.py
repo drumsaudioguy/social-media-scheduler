@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("SOCIAL MEDIA SCHEDULER V6")
+print("SOCIAL MEDIA SCHEDULER V5")
 print("=================================")
 
 # =========================
@@ -794,9 +794,29 @@ for index, row in df.iterrows():
 
                 print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
 
+                # =========================
+                # R2 CLEANUP
+                # =========================
+
+                print("Cleaning up R2 files...")
+
+                urls_to_delete = [
+                    u.strip()
+                    for u in media_urls
+                    if u.strip() != ""
+                ]
+
+                delete_r2_files(urls_to_delete)
+
+                worksheet.update_cell(
+                    index + 2,
+                    14,
+                    "Deleted"
+                )
+
             else:
 
-                print("FACEBOOK POST FAILED - Instagram was still successful")
+                print("FACEBOOK POST FAILED - Instagram was still successful - R2 NOT deleted")
 
         else:
 
