@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("SOCIAL MEDIA SCHEDULER V5")
+print("SOCIAL MEDIA SCHEDULER V6")
 print("=================================")
 
 # =========================
