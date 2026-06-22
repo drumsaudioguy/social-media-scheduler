@@ -24,6 +24,7 @@ jobs:
           pip install requests
           pip install gspread
           pip install oauth2client
+          pip install boto3
 
       - name: Run Scheduler
         env:
