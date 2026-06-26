@@ -3,6 +3,7 @@ import re
 import json
 import boto3
 import gspread
+import requests
 
 from google import genai
 from google.genai import types
@@ -142,14 +143,27 @@ def get_existing_media_urls():
     return existing
 
 # =========================
+# HELPER: DOWNLOAD FILE FROM R2
+# =========================
+
+def download_file(url, suffix):
+    """Download a file from R2 using requests and save to a temp file."""
+    import tempfile
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; R2Scanner/1.0)"}
+    response = requests.get(url, headers=headers, timeout=60)
+    response.raise_for_status()
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp.write(response.content)
+    tmp.flush()
+    tmp.close()
+    return tmp.name
+
+# =========================
 # HELPER: GENERATE CAPTION WITH GEMINI
 # =========================
 
 def generate_caption(brand_name, content_type, urls, tone):
     """Send media to Gemini Vision and get a creative caption."""
-    import urllib.request
-    import tempfile
-
     try:
         if content_type == "Reel":
             prompt = (
@@ -160,10 +174,8 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            suffix = ".mp4"
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                urllib.request.urlretrieve(urls[0], tmp.name)
-                uploaded = gemini_client.files.upload(file=tmp.name)
+            tmp_path = download_file(urls[0], ".mp4")
+            uploaded = gemini_client.files.upload(file=tmp_path)
             response = gemini_client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=[prompt, uploaded]
@@ -179,179 +191,6 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"One caption only."
             )
             suffix = "." + urls[0].split(".")[-1].split("?")[0]
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                urllib.request.urlretrieve(urls[0], tmp.name)
-                uploaded = gemini_client.files.upload(file=tmp.name)
+            tmp_path = download_file(urls[0], suffix)
+            uploaded = gemini_client.files.upload(file=tmp_path)
             response = gemini_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[prompt, uploaded]
-            )
-
-        elif content_type == "Carousel":
-            prompt = (
-                f"You are a creative social media copywriter for {brand_name}. "
-                f"Brand tone: {tone}. "
-                f"Look at all these {len(urls)} images together as one cohesive carousel post. "
-                f"Write ONE single caption for the entire carousel, not per image. "
-                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
-                f"Be original and unexpected. Write like a human, not a marketer. "
-                f"One caption only."
-            )
-            parts = [prompt]
-            for url in urls:
-                suffix = "." + url.split(".")[-1].split("?")[0]
-                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                    urllib.request.urlretrieve(url, tmp.name)
-                    uploaded = gemini_client.files.upload(file=tmp.name)
-                parts.append(uploaded)
-            response = gemini_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=parts
-            )
-
-        caption = response.text.strip()
-        print(f"  Gemini caption: {caption[:80]}...")
-        return caption
-
-    except Exception as e:
-        print(f"  Gemini error: {e}")
-        return f"New post from {brand_name}."
-
-# =========================
-# HELPER: GET NEXT PUBLISH SLOT
-# =========================
-
-def get_next_publish_slot():
-    """Returns today's date and a time slot (next round 30-min from now)."""
-    now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    minute = now.minute
-    if minute < 30:
-        slot_minute = 30
-        slot_hour = now.hour
-    else:
-        slot_minute = 0
-        slot_hour = now.hour + 1
-    if slot_hour >= 24:
-        slot_hour = 9
-    publish_date = now.strftime("%d-%m-%Y")
-    publish_time = f"{slot_hour:02d}:{slot_minute:02d}"
-    return publish_date, publish_time
-
-# =========================
-# HELPER: ADD ROW TO SHEET
-# =========================
-
-def add_row_to_sheet(brand, content_type, media_urls_str, caption, publish_date, publish_time):
-    """Appends a new Pending row to the Google Sheet."""
-    new_row = [
-        brand,          # A - Brand
-        "Instagram",    # B - Platform
-        content_type,   # C - ContentType
-        publish_date,   # D - PublishDate
-        publish_time,   # E - PublishTime
-        media_urls_str, # F - MediaURLs
-        caption,        # G - Caption
-        "Pending",      # H - Status
-        "",             # I - PostID
-        "",             # J - TokenStatus
-        "",             # K - LastCheck
-        "",             # L - DataAccessExpiry
-        "",             # M - Facebook PostID
-        "",             # N - R2Status
-        "",             # O - AI Rewrite Instruction
-    ]
-    worksheet.append_row(new_row, value_input_option="USER_ENTERED")
-    print(f"  ✅ Row added: {brand} | {content_type} | {publish_date} {publish_time}")
-
-# =========================
-# MAIN SCANNER LOGIC
-# =========================
-
-existing_urls = get_existing_media_urls()
-print(f"\nFound {len(existing_urls)} existing URLs in sheet")
-new_rows_added = 0
-
-for brand_name, brand_config in BRANDS.items():
-    folder = brand_config["r2_folder"]
-    tone = brand_config["tone"]
-
-    print(f"\n--- Scanning: {brand_name} ({folder}/) ---")
-
-    # ── PHOTOS ──────────────────────────────────────────
-    photo_keys = [
-        k for k in list_r2_files(f"{folder}/Photos/")
-        if k.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
-    for key in photo_keys:
-        public_url = f"{R2_BASE_URL}/{quote(key, safe='+/')}"
-        if public_url in existing_urls:
-            print(f"  SKIP (exists): {key.split('/')[-1]}")
-            continue
-        print(f"  NEW Photo: {key.split('/')[-1]}")
-        caption = generate_caption(brand_name, "Image", [public_url], tone)
-        publish_date, publish_time = get_next_publish_slot()
-        add_row_to_sheet(brand_name, "Image", public_url, caption, publish_date, publish_time)
-        existing_urls.add(public_url)
-        new_rows_added += 1
-
-    # ── REELS ────────────────────────────────────────────
-    reel_keys = [
-        k for k in list_r2_files(f"{folder}/Reels/")
-        if k.lower().endswith(".mp4")
-    ]
-    reel_keys += [
-        k for k in list_r2_files(f"{folder}/Reel/")
-        if k.lower().endswith(".mp4")
-    ]
-    for key in reel_keys:
-        public_url = f"{R2_BASE_URL}/{quote(key, safe='+/')}"
-        if public_url in existing_urls:
-            print(f"  SKIP (exists): {key.split('/')[-1]}")
-            continue
-        print(f"  NEW Reel: {key.split('/')[-1]}")
-        caption = generate_caption(brand_name, "Reel", [public_url], tone)
-        publish_date, publish_time = get_next_publish_slot()
-        add_row_to_sheet(brand_name, "Reel", public_url, caption, publish_date, publish_time)
-        existing_urls.add(public_url)
-        new_rows_added += 1
-
-    # ── CAROUSEL ─────────────────────────────────────────
-    carousel_base = f"{folder}/Carousel/"
-    all_carousel_keys = [
-        k for k in list_r2_files(carousel_base)
-        if k.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
-
-    carousel_groups = {}
-    for key in all_carousel_keys:
-        parts = key.split("/")
-        if len(parts) >= 4:
-            subfolder = parts[2]
-        else:
-            subfolder = "default"
-        carousel_groups.setdefault(subfolder, []).append(key)
-
-    for subfolder, keys in carousel_groups.items():
-        urls = [f"{R2_BASE_URL}/{quote(k, safe='+/')}" for k in keys]
-        urls = sorted(urls, key=natural_sort_key)
-
-        if any(u in existing_urls for u in urls):
-            print(f"  SKIP Carousel (exists): {subfolder}")
-            continue
-
-        print(f"  NEW Carousel: {subfolder} ({len(urls)} images)")
-        media_urls_str = "|".join(urls)
-        caption = generate_caption(brand_name, "Carousel", urls, tone)
-        publish_date, publish_time = get_next_publish_slot()
-        add_row_to_sheet(brand_name, "Carousel", media_urls_str, caption, publish_date, publish_time)
-        for u in urls:
-            existing_urls.add(u)
-        new_rows_added += 1
-
-# =========================
-# SUMMARY
-# =========================
-
-print("\n=================================")
-print(f"SCANNER FINISHED — {new_rows_added} new rows added")
-print("=================================")
