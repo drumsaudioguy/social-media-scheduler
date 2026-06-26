@@ -1,0 +1,32 @@
+name: R2 Scanner
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # every 30 minutes
+  workflow_dispatch:           # manual trigger button
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run R2 Scanner
+        env:
+          R2_BUCKET_NAME:     ${{ secrets.R2_BUCKET_NAME }}
+          R2_ACCOUNT_ID:      ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY:      ${{ secrets.R2_ACCESS_KEY }}
+          R2_SECRET_KEY:      ${{ secrets.R2_SECRET_KEY }}
+          GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
+          SPREADSHEET_ID:     ${{ secrets.SPREADSHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python r2_scanner.py
