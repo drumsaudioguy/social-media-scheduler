@@ -157,7 +157,7 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
                 f"Watch this video and write one short, punchy caption for an Instagram Reel. "
-                f"No emojis, five Hashtags, no generic phrases. "
+                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
@@ -175,7 +175,7 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
                 f"Look at this image and write one short, punchy caption for an Instagram post. "
-                f"No emojis, no hashtags, no generic phrases. "
+                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
@@ -194,7 +194,7 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"Brand tone: {tone}. "
                 f"Look at all these {len(urls)} images together as one cohesive carousel post. "
                 f"Write ONE single caption for the entire carousel, not per image. "
-                f"No emojis, no hashtags, no generic phrases. "
+                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
@@ -307,7 +307,7 @@ for brand_name, brand_config in BRANDS.items():
         if k.lower().endswith(".mp4")
     ]
     for key in reel_keys:
-        public_url = f"{R2_BASE_URL}/{key}"
+        public_url = f"{R2_BASE_URL}/{quote(key)}"
         if public_url in existing_urls:
             print(f"  SKIP (exists): {key.split('/')[-1]}")
             continue
@@ -337,7 +337,7 @@ for brand_name, brand_config in BRANDS.items():
         carousel_groups.setdefault(subfolder, []).append(key)
 
     for subfolder, keys in carousel_groups.items():
-        urls = [f"{R2_BASE_URL}/{k}" for k in keys]
+        urls = [f"{R2_BASE_URL}/{quote(k)}" for k in keys]
         urls = sorted(urls, key=natural_sort_key)
 
         # Check if ANY url from this group already exists
