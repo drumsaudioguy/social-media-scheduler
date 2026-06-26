@@ -283,7 +283,7 @@ for brand_name, brand_config in BRANDS.items():
         if k.lower().endswith((".jpg", ".jpeg", ".png"))
     ]
     for key in photo_keys:
-        public_url = f"{R2_BASE_URL}/{quote(key)}"
+        public_url = f"{R2_BASE_URL}/{quote(key, safe='+/')}"
         if public_url in existing_urls:
             print(f"  SKIP (exists): {key.split('/')[-1]}")
             continue
@@ -304,7 +304,7 @@ for brand_name, brand_config in BRANDS.items():
         if k.lower().endswith(".mp4")
     ]
     for key in reel_keys:
-        public_url = f"{R2_BASE_URL}/{quote(key)}"
+        public_url = f"{R2_BASE_URL}/{quote(key, safe='+/')}"
         if public_url in existing_urls:
             print(f"  SKIP (exists): {key.split('/')[-1]}")
             continue
@@ -332,7 +332,7 @@ for brand_name, brand_config in BRANDS.items():
         carousel_groups.setdefault(subfolder, []).append(key)
 
     for subfolder, keys in carousel_groups.items():
-        urls = [f"{R2_BASE_URL}/{quote(k)}" for k in keys]
+        urls = [f"{R2_BASE_URL}/{quote(k, safe='+/')}" for k in keys]
         urls = sorted(urls, key=natural_sort_key)
 
         if any(u in existing_urls for u in urls):
