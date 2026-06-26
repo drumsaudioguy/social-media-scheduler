@@ -1,5 +1,6 @@
-pandas
-requests
-gspread
-oauth2client
-boto3
+pandas  
+requests  
+gspread  
+oauth2client  
+boto3  
+google-generativeai
