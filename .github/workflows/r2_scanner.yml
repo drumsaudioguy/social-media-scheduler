@@ -2,8 +2,8 @@ name: R2 Scanner
 
 on:
   schedule:
-    - cron: '*/30 * * * *'   # every 30 minutes
-  workflow_dispatch:           # manual trigger button
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
 
 jobs:
   scan:
@@ -24,9 +24,9 @@ jobs:
         env:
           R2_BUCKET_NAME:     ${{ secrets.R2_BUCKET_NAME }}
           R2_ACCOUNT_ID:      ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY:      ${{ secrets.R2_ACCESS_KEY }}
-          R2_SECRET_KEY:      ${{ secrets.R2_SECRET_KEY }}
+          R2_ACCESS_KEY:      ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_KEY:      ${{ secrets.R2_SECRET_ACCESS_KEY }}
           GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
-          SPREADSHEET_ID:     ${{ secrets.SPREADSHEET_ID }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SPREADSHEET_ID:     ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
         run: python r2_scanner.py
