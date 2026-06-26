@@ -4,6 +4,7 @@ import json
 import boto3
 import gspread
 import requests
+import base64
 
 from google import genai
 from google.genai import types
@@ -143,20 +144,24 @@ def get_existing_media_urls():
     return existing
 
 # =========================
-# HELPER: DOWNLOAD FILE FROM R2
+# HELPER: DOWNLOAD FILE AS BASE64
 # =========================
 
-def download_file(url, suffix):
-    """Download a file from R2 using requests and save to a temp file."""
-    import tempfile
+def download_as_base64(url):
+    """Download file from R2 and return (base64_data, mime_type)."""
     headers = {"User-Agent": "Mozilla/5.0 (compatible; R2Scanner/1.0)"}
     response = requests.get(url, headers=headers, timeout=60)
     response.raise_for_status()
-    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-    tmp.write(response.content)
-    tmp.flush()
-    tmp.close()
-    return tmp.name
+    ext = url.split(".")[-1].split("?")[0].lower()
+    mime_map = {
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+        "png": "image/png",
+        "mp4": "video/mp4"
+    }
+    mime_type = mime_map.get(ext, "image/jpeg")
+    b64_data = base64.b64encode(response.content).decode("utf-8")
+    return b64_data, mime_type
 
 # =========================
 # HELPER: GENERATE CAPTION WITH GEMINI
@@ -174,11 +179,13 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            tmp_path = download_file(urls[0], ".mp4")
-            uploaded = gemini_client.files.upload(file=tmp_path)
+            b64_data, mime_type = download_as_base64(urls[0])
             response = gemini_client.models.generate_content(
                 model="gemini-2.0-flash",
-                contents=[prompt, uploaded]
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type)
+                ]
             )
 
         elif content_type == "Image":
@@ -190,12 +197,13 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            suffix = "." + urls[0].split(".")[-1].split("?")[0]
-            tmp_path = download_file(urls[0], suffix)
-            uploaded = gemini_client.files.upload(file=tmp_path)
+            b64_data, mime_type = download_as_base64(urls[0])
             response = gemini_client.models.generate_content(
                 model="gemini-2.0-flash",
-                contents=[prompt, uploaded]
+                contents=[
+                    prompt,
+                    types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type)
+                ]
             )
 
         elif content_type == "Carousel":
@@ -210,10 +218,10 @@ def generate_caption(brand_name, content_type, urls, tone):
             )
             parts = [prompt]
             for url in urls:
-                suffix = "." + url.split(".")[-1].split("?")[0]
-                tmp_path = download_file(url, suffix)
-                uploaded = gemini_client.files.upload(file=tmp_path)
-                parts.append(uploaded)
+                b64_data, mime_type = download_as_base64(url)
+                parts.append(
+                    types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type)
+                )
             response = gemini_client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=parts
