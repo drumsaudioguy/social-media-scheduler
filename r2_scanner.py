@@ -3,13 +3,14 @@ import re
 import json
 import boto3
 import gspread
-import google.generativeai as genai
+
+from google import genai
+from google.genai import types
 
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from botocore.config import Config
 from oauth2client.service_account import ServiceAccountCredentials
-
 # =========================
 # R2 SCANNER V1
 # =========================
