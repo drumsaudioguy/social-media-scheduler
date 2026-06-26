@@ -10,7 +10,9 @@ from google.genai import types
 from datetime import datetime, date
 from zoneinfo import ZoneInfo
 from botocore.config import Config
+from urllib.parse import quote
 from oauth2client.service_account import ServiceAccountCredentials
+
 # =========================
 # R2 SCANNER V1
 # =========================
@@ -98,8 +100,7 @@ print("R2 connected ✅")
 # GEMINI SETUP
 # =========================
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.0-flash")
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 print("Gemini connected ✅")
 
@@ -122,7 +123,6 @@ def list_r2_files(prefix):
     for page in paginator.paginate(Bucket=R2_BUCKET_NAME, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            # Skip folder placeholders
             if not key.endswith("/"):
                 files.append(key)
     return files
@@ -133,7 +133,7 @@ def list_r2_files(prefix):
 
 def get_existing_media_urls():
     """Returns a flat set of all URLs already in Column F (MediaURLs)."""
-    all_values = worksheet.col_values(6)  # Column F = MediaURLs
+    all_values = worksheet.col_values(6)
     existing = set()
     for cell in all_values:
         if cell:
@@ -147,37 +147,45 @@ def get_existing_media_urls():
 
 def generate_caption(brand_name, content_type, urls, tone):
     """Send media to Gemini Vision and get a creative caption."""
+    import urllib.request
+    import tempfile
+
     try:
         if content_type == "Reel":
             prompt = (
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
                 f"Watch this video and write one short, punchy caption for an Instagram Reel. "
-                f"No emojis, no hashtags, no generic phrases. "
+                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            media_part = {"mime_type": "video/mp4", "uri": urls[0]}
-            response = model.generate_content([prompt, media_part])
+            suffix = ".mp4"
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                urllib.request.urlretrieve(urls[0], tmp.name)
+                uploaded = gemini_client.files.upload(file=tmp.name)
+            response = gemini_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[prompt, uploaded]
+            )
 
         elif content_type == "Image":
             prompt = (
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
                 f"Look at this image and write one short, punchy caption for an Instagram post. "
-                f"No emojis, no hashtags, no generic phrases. "
+                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            import urllib.request
-            import tempfile
-            import mimetypes
-            # Download image temporarily for Gemini
-            suffix = "." + urls[0].split(".")[-1]
+            suffix = "." + urls[0].split(".")[-1].split("?")[0]
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 urllib.request.urlretrieve(urls[0], tmp.name)
-                img_data = genai.upload_file(tmp.name)
-            response = model.generate_content([prompt, img_data])
+                uploaded = gemini_client.files.upload(file=tmp.name)
+            response = gemini_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[prompt, uploaded]
+            )
 
         elif content_type == "Carousel":
             prompt = (
@@ -185,20 +193,21 @@ def generate_caption(brand_name, content_type, urls, tone):
                 f"Brand tone: {tone}. "
                 f"Look at all these {len(urls)} images together as one cohesive carousel post. "
                 f"Write ONE single caption for the entire carousel, not per image. "
-                f"No emojis, no hashtags, no generic phrases. "
+                f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            import urllib.request
-            import tempfile
             parts = [prompt]
             for url in urls:
-                suffix = "." + url.split(".")[-1]
+                suffix = "." + url.split(".")[-1].split("?")[0]
                 with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                     urllib.request.urlretrieve(url, tmp.name)
-                    img_data = genai.upload_file(tmp.name)
-                parts.append(img_data)
-            response = model.generate_content(parts)
+                    uploaded = gemini_client.files.upload(file=tmp.name)
+                parts.append(uploaded)
+            response = gemini_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=parts
+            )
 
         caption = response.text.strip()
         print(f"  Gemini caption: {caption[:80]}...")
@@ -215,7 +224,6 @@ def generate_caption(brand_name, content_type, urls, tone):
 def get_next_publish_slot():
     """Returns today's date and a time slot (next round 30-min from now)."""
     now = datetime.now(ZoneInfo("Asia/Kolkata"))
-    # Round up to next 30-min slot
     minute = now.minute
     if minute < 30:
         slot_minute = 30
@@ -224,7 +232,7 @@ def get_next_publish_slot():
         slot_minute = 0
         slot_hour = now.hour + 1
     if slot_hour >= 24:
-        slot_hour = 9  # fallback to 9am
+        slot_hour = 9
     publish_date = now.strftime("%d-%m-%Y")
     publish_time = f"{slot_hour:02d}:{slot_minute:02d}"
     return publish_date, publish_time
@@ -243,7 +251,7 @@ def add_row_to_sheet(brand, content_type, media_urls_str, caption, publish_date,
         publish_time,   # E - PublishTime
         media_urls_str, # F - MediaURLs
         caption,        # G - Caption
-        "Pending",      # H - Status (Pending until you approve)
+        "Pending",      # H - Status
         "",             # I - PostID
         "",             # J - TokenStatus
         "",             # K - LastCheck
@@ -275,7 +283,7 @@ for brand_name, brand_config in BRANDS.items():
         if k.lower().endswith((".jpg", ".jpeg", ".png"))
     ]
     for key in photo_keys:
-        public_url = f"{R2_BASE_URL}/{key}"
+        public_url = f"{R2_BASE_URL}/{quote(key)}"
         if public_url in existing_urls:
             print(f"  SKIP (exists): {key.split('/')[-1]}")
             continue
@@ -291,13 +299,12 @@ for brand_name, brand_config in BRANDS.items():
         k for k in list_r2_files(f"{folder}/Reels/")
         if k.lower().endswith(".mp4")
     ]
-    # Also check "Reel" (singular) folder variant
     reel_keys += [
         k for k in list_r2_files(f"{folder}/Reel/")
         if k.lower().endswith(".mp4")
     ]
     for key in reel_keys:
-        public_url = f"{R2_BASE_URL}/{key}"
+        public_url = f"{R2_BASE_URL}/{quote(key)}"
         if public_url in existing_urls:
             print(f"  SKIP (exists): {key.split('/')[-1]}")
             continue
@@ -315,11 +322,9 @@ for brand_name, brand_config in BRANDS.items():
         if k.lower().endswith((".jpg", ".jpeg", ".png"))
     ]
 
-    # Group by subfolder (e.g. Tl-2030)
     carousel_groups = {}
     for key in all_carousel_keys:
         parts = key.split("/")
-        # parts: [Brand, Carousel, SubFolder, filename]
         if len(parts) >= 4:
             subfolder = parts[2]
         else:
@@ -327,10 +332,9 @@ for brand_name, brand_config in BRANDS.items():
         carousel_groups.setdefault(subfolder, []).append(key)
 
     for subfolder, keys in carousel_groups.items():
-        urls = [f"{R2_BASE_URL}/{k}" for k in keys]
+        urls = [f"{R2_BASE_URL}/{quote(k)}" for k in keys]
         urls = sorted(urls, key=natural_sort_key)
 
-        # Check if ANY url from this group already exists
         if any(u in existing_urls for u in urls):
             print(f"  SKIP Carousel (exists): {subfolder}")
             continue
