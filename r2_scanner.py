@@ -96,7 +96,6 @@ s3 = boto3.client(
 )
 
 print("R2 connected ✅")
-
 print("Groq connected ✅")
 
 # =========================
@@ -349,24 +348,30 @@ for brand_name, brand_config in BRANDS.items():
 
 print("\n--- AI Rewrite Pass ---")
 
-all_rows = worksheet.get_all_records()
+all_rows = worksheet.get_all_values()  # raw rows including header
 
-# Read all Column O values directly (bypass header name issue)
-col_o_values = worksheet.col_values(15)  # Column O = 15
+print(f"  Total rows in sheet (including header): {len(all_rows)}")
 
+# Column O = index 14 (0-based)
 for i, row in enumerate(all_rows):
 
-    instruction = str(col_o_values[i + 1] if i + 1 < len(col_o_values) else "").strip()
+    if i == 0:
+        continue  # skip header
+
+    # Pad row if shorter than 15 columns
+    while len(row) < 15:
+        row.append("")
+
+    instruction = str(row[14]).strip()  # Column O = index 14
 
     if not instruction:
         continue
 
-    brand_name  = str(row.get("Brand", "")).strip()
-    content_type = str(row.get("ContentType", "")).strip()
-    old_caption = str(row.get("Caption", "")).strip()
-    row_number  = i + 2  # 1-indexed + header row
+    row_number  = i + 1  # 1-indexed for gspread
+    brand_name  = str(row[0]).strip()   # Column A
+    old_caption = str(row[6]).strip()   # Column G
 
-    print(f"  REWRITE Row {row_number}: {brand_name} — Instruction: {instruction[:60]}")
+    print(f"  REWRITE Row {row_number}: {brand_name} — {instruction[:60]}")
 
     tone = BRANDS.get(brand_name, {}).get("tone", "engaging, creative")
 
@@ -411,11 +416,12 @@ for i, row in enumerate(all_rows):
         # Clear Column O (15)
         worksheet.update_cell(row_number, 15, "")
 
-        print(f"  ✅ Rewritten & Column O cleared")
+        print(f"  ✅ Rewritten & Column O cleared — Row {row_number}")
 
     except Exception as e:
 
         print(f"  REWRITE ERROR: {str(e)}")
+
 # =========================
 # SUMMARY
 # =========================
