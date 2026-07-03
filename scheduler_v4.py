@@ -6,6 +6,7 @@ import requests
 import gspread
 
 from datetime import datetime, timezone
+from urllib.parse import unquote
 import boto3
 from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
@@ -108,18 +109,16 @@ BRANDS = {
 # META USER TOKEN
 # =========================
 
-META_USER_TOKEN = os.getenv(
-    "META_USER_TOKEN"
-)
+META_USER_TOKEN = os.getenv("META_USER_TOKEN")
 
 # =========================
 # R2 CLIENT (boto3)
 # =========================
 
-R2_ACCOUNT_ID = os.getenv("R2_ACCOUNT_ID")
-R2_ACCESS_KEY_ID = os.getenv("R2_ACCESS_KEY_ID")
+R2_ACCOUNT_ID        = os.getenv("R2_ACCOUNT_ID")
+R2_ACCESS_KEY_ID     = os.getenv("R2_ACCESS_KEY_ID")
 R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
-R2_BUCKET_NAME = os.getenv("R2_BUCKET_NAME")
+R2_BUCKET_NAME       = os.getenv("R2_BUCKET_NAME")
 
 r2_client = boto3.client(
     "s3",
@@ -132,6 +131,8 @@ r2_client = boto3.client(
 
 def delete_r2_files(media_urls):
 
+    all_success = True
+
     for media_url in media_urls:
 
         media_url = media_url.strip()
@@ -141,15 +142,15 @@ def delete_r2_files(media_urls):
 
         try:
 
-            # Extract the key from the URL
-            # e.g. https://pub-xxx.r2.dev/Pearl/file.jpg → Pearl/file.jpg
             parts = media_url.split(".r2.dev/")
 
             if len(parts) < 2:
                 print("R2 DELETE: Could not parse URL:", media_url)
+                all_success = False
                 continue
 
-            file_key = parts[1]
+            # unquote fixes %20 spaces — e.g. Konig%20and%20Meyer → Konig and Meyer
+            file_key = unquote(parts[1])
 
             print("R2 DELETE: Deleting file:", file_key)
 
@@ -163,6 +164,9 @@ def delete_r2_files(media_urls):
         except Exception as e:
 
             print("R2 DELETE ERROR:", str(e))
+            all_success = False
+
+    return all_success
 
 
 # =========================
@@ -175,9 +179,7 @@ def validate_token(token, brand):
 
         response = requests.get(
             "https://graph.facebook.com/v23.0/me",
-            params={
-                "access_token": token
-            }
+            params={"access_token": token}
         )
 
         result = response.json()
@@ -205,11 +207,7 @@ def validate_token(token, brand):
 
 def update_token_status(row_number, status):
 
-    worksheet.update_cell(
-        row_number,
-        10,
-        status
-    )
+    worksheet.update_cell(row_number, 10, status)
 
 
 def update_last_check(row_number):
@@ -223,10 +221,7 @@ def update_last_check(row_number):
     )
 
 
-def update_data_access_expiry(
-    token,
-    row_number
-):
+def update_data_access_expiry(token, row_number):
 
     try:
 
@@ -243,78 +238,19 @@ def update_data_access_expiry(
         print("TOKEN DEBUG:")
         print(result)
 
-        expiry = (
-            result
-            .get("data", {})
-            .get("data_access_expires_at")
-        )
+        expiry = result.get("data", {}).get("data_access_expires_at")
 
         if expiry:
 
-            expiry_date = datetime.fromtimestamp(
-                expiry
-            ).strftime(
+            expiry_date = datetime.fromtimestamp(expiry).strftime(
                 "%d-%m-%Y %H:%M:%S"
             )
 
-            worksheet.update_cell(
-                row_number,
-                12,
-                expiry_date
-            )
+            worksheet.update_cell(row_number, 12, expiry_date)
 
     except Exception as e:
 
-        print(
-            "DATA ACCESS ERROR:",
-            str(e)
-        )
-
-
-def get_token_expiry(access_token):
-
-    try:
-
-        response = requests.get(
-            "https://graph.facebook.com/debug_token",
-            params={
-                "input_token": access_token,
-                "access_token": META_USER_TOKEN
-            }
-        )
-
-        result = response.json()
-
-        print("TOKEN DEBUG RESPONSE:")
-        print(result)
-
-        if (
-            "data" in result and
-            "data_access_expires_at" in result["data"]
-        ):
-
-            expiry_timestamp = result["data"][
-                "data_access_expires_at"
-            ]
-
-            expiry_date = datetime.fromtimestamp(
-                expiry_timestamp
-            )
-
-            return expiry_date.strftime(
-                "%d-%m-%Y"
-            )
-
-        return "Unknown"
-
-    except Exception as e:
-
-        print(
-            "TOKEN EXPIRY ERROR:",
-            str(e)
-        )
-
-        return "Unknown"
+        print("DATA ACCESS ERROR:", str(e))
 
 
 # =========================
@@ -465,8 +401,7 @@ for index, row in df.iterrows():
             ).strftime("%d-%m-%Y %H:%M:%S")
         )
 
-        status = str(row["Status"]).strip()
-
+        status  = str(row["Status"]).strip()
         post_id = str(row["PostID"]).strip()
 
         if status == "Posted":
@@ -476,9 +411,7 @@ for index, row in df.iterrows():
             continue
 
         if post_id != "":
-            print(
-                "ALREADY POSTED - SKIPPING"
-            )
+            print("ALREADY POSTED - SKIPPING")
             continue
 
         date_string = f"{row['PublishDate']} {row['PublishTime']}"
@@ -486,87 +419,46 @@ for index, row in df.iterrows():
         publish_datetime = datetime.strptime(
             date_string,
             "%d-%m-%Y %H:%M"
-        ).replace(
-            tzinfo=ZoneInfo("Asia/Kolkata")
-        )
+        ).replace(tzinfo=ZoneInfo("Asia/Kolkata"))
 
-        current_time = datetime.now(
-            ZoneInfo("Asia/Kolkata")
-        )
+        current_time = datetime.now(ZoneInfo("Asia/Kolkata"))
 
         print("Scheduled:", publish_datetime)
         print("Current:", current_time)
-        print("Timezone:", current_time.tzinfo)
 
         if current_time < publish_datetime:
-
             print("Not yet time to publish.")
-
             continue
 
         brand = str(row["Brand"]).strip()
 
         if brand not in BRANDS:
-
             print("Unknown Brand:", brand)
-
             continue
 
-        ACCESS_TOKEN = BRANDS[brand]["token"]
+        ACCESS_TOKEN  = BRANDS[brand]["token"]
         IG_ACCOUNT_ID = BRANDS[brand]["ig_id"]
-        FB_PAGE_ID = BRANDS[brand]["fb_page_id"]
+        FB_PAGE_ID    = BRANDS[brand]["fb_page_id"]
 
-        worksheet.update_cell(
-            index + 2,
-            10,
-            "Checking"
-        )
+        worksheet.update_cell(index + 2, 10, "Checking")
 
-        token_ok = validate_token(
-            ACCESS_TOKEN,
-            brand
-        )
+        token_ok = validate_token(ACCESS_TOKEN, brand)
 
-        update_last_check(
-            index + 2
-        )
+        update_last_check(index + 2)
 
         if token_ok:
-
-            update_token_status(
-                index + 2,
-                "Valid"
-            )
-
-            update_data_access_expiry(
-                ACCESS_TOKEN,
-                index + 2
-            )
-
+            update_token_status(index + 2, "Valid")
+            update_data_access_expiry(ACCESS_TOKEN, index + 2)
         else:
-
-            update_token_status(
-                index + 2,
-                "Invalid"
-            )
+            update_token_status(index + 2, "Invalid")
 
         if not token_ok:
-
-            worksheet.update_cell(
-                index + 2,
-                8,
-                "Failed"
-            )
-
+            worksheet.update_cell(index + 2, 8, "Failed")
             continue
 
         content_type = str(row["ContentType"]).strip()
-
-        caption = str(row["Caption"]).strip()
-
-        media_urls = str(
-            row["MediaURLs"]
-        ).split("|")
+        caption      = str(row["Caption"]).strip()
+        media_urls   = str(row["MediaURLs"]).split("|")
 
         print("Brand:", brand)
         print("Type:", content_type)
@@ -597,18 +489,8 @@ for index, row in df.iterrows():
 
             print(create_result)
 
-            if "error" in create_result:
-                print("REEL ERROR:")
-                print(create_result)
-
             if "id" not in create_result:
-
-                worksheet.update_cell(
-                    index + 2,
-                    8,
-                    "Failed"
-                )
-
+                worksheet.update_cell(index + 2, 8, "Failed")
                 continue
 
             creation_id = create_result["id"]
@@ -651,13 +533,7 @@ for index, row in df.iterrows():
             print(create_result)
 
             if "id" not in create_result:
-
-                worksheet.update_cell(
-                    index + 2,
-                    8,
-                    "Failed"
-                )
-
+                worksheet.update_cell(index + 2, 8, "Failed")
                 continue
 
             publish_response = requests.post(
@@ -683,10 +559,7 @@ for index, row in df.iterrows():
                 if media_url == "":
                     continue
 
-                print(
-                    "Creating carousel image:",
-                    media_url
-                )
+                print("Creating carousel image:", media_url)
 
                 create_response = requests.post(
                     f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
@@ -702,19 +575,10 @@ for index, row in df.iterrows():
                 print(create_result)
 
                 if "id" in create_result:
-
-                    media_ids.append(
-                        create_result["id"]
-                    )
+                    media_ids.append(create_result["id"])
 
             if len(media_ids) == 0:
-
-                worksheet.update_cell(
-                    index + 2,
-                    8,
-                    "Failed"
-                )
-
+                worksheet.update_cell(index + 2, 8, "Failed")
                 continue
 
             carousel_response = requests.post(
@@ -732,13 +596,7 @@ for index, row in df.iterrows():
             print(carousel_result)
 
             if "id" not in carousel_result:
-
-                worksheet.update_cell(
-                    index + 2,
-                    8,
-                    "Failed"
-                )
-
+                worksheet.update_cell(index + 2, 8, "Failed")
                 continue
 
             publish_response = requests.post(
@@ -756,42 +614,14 @@ for index, row in df.iterrows():
 
         if "id" in publish_result:
 
-            worksheet.update_cell(
-                index + 2,
-                8,
-                "Posted"
-            )
-
-            worksheet.update_cell(
-                index + 2,
-                9,
-                publish_result["id"]
-            )
-
+            # ── Mark Instagram Posted ──
+            worksheet.update_cell(index + 2, 8, "Posted")
+            worksheet.update_cell(index + 2, 9, publish_result["id"])
             print("INSTAGRAM POSTED SUCCESSFULLY")
 
             # =========================
-            # R2 CLEANUP (after IG success)
-            # =========================
-
-            print("Cleaning up R2 files...")
-
-            urls_to_delete = [
-                u.strip()
-                for u in media_urls
-                if u.strip() != ""
-            ]
-
-            delete_r2_files(urls_to_delete)
-
-            worksheet.update_cell(
-                index + 2,
-                14,
-                "Deleted"
-            )
-
-            # =========================
             # FACEBOOK POSTING
+            # (must happen BEFORE R2 delete — FB needs the URLs alive)
             # =========================
 
             print("Now posting to Facebook...")
@@ -805,27 +635,34 @@ for index, row in df.iterrows():
             )
 
             if fb_post_id:
-
-                worksheet.update_cell(
-                    index + 2,
-                    13,
-                    fb_post_id
-                )
-
+                worksheet.update_cell(index + 2, 13, fb_post_id)
                 print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
-
             else:
-
                 print("FACEBOOK POST FAILED - Instagram was still successful")
+
+            # =========================
+            # R2 CLEANUP
+            # (after BOTH Instagram + Facebook are done)
+            # =========================
+
+            print("Cleaning up R2 files...")
+
+            urls_to_delete = [
+                u.strip()
+                for u in media_urls
+                if u.strip() != ""
+            ]
+
+            delete_success = delete_r2_files(urls_to_delete)
+
+            if delete_success:
+                worksheet.update_cell(index + 2, 14, "Deleted")
+            else:
+                worksheet.update_cell(index + 2, 14, "DeleteFailed")
 
         else:
 
-            worksheet.update_cell(
-                index + 2,
-                8,
-                "Failed"
-            )
-
+            worksheet.update_cell(index + 2, 8, "Failed")
             print("INSTAGRAM POST FAILED")
 
     except Exception as e:
