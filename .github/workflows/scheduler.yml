@@ -43,6 +43,9 @@ jobs:
           KM_TOKEN: ${{ secrets.KM_TOKEN }}
           KM_IG_ID: ${{ secrets.KM_IG_ID }}
 
+          MSB_TOKEN: ${{ secrets.MSB_TOKEN }}
+          MSB_IG_ID: ${{ secrets.MSB_IG_ID }}
+
           META_USER_TOKEN: ${{ secrets.META_USER_TOKEN }}
           META_APP_ID: ${{ secrets.META_APP_ID }}
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
