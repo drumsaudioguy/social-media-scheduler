@@ -348,28 +348,36 @@ for brand_name, brand_config in BRANDS.items():
 
 print("\n--- AI Rewrite Pass ---")
 
-all_rows = worksheet.get_all_values()  # raw rows including header
-
+all_rows = worksheet.get_all_values()
 print(f"  Total rows in sheet (including header): {len(all_rows)}")
 
-# Column O = index 14 (0-based)
+# DIAGNOSTIC - print every row's Column O value
+print("  DIAGNOSTIC - scanning all Column O values:")
+for i, row in enumerate(all_rows):
+    if i == 0:
+        continue
+    val = row[14] if len(row) > 14 else "ROW TOO SHORT"
+    print(f"  Row {i+1}: col_count={len(row)} | O={repr(val)}")
+
+found_any = False
+
 for i, row in enumerate(all_rows):
 
     if i == 0:
-        continue  # skip header
+        continue
 
-    # Pad row if shorter than 15 columns
     while len(row) < 15:
         row.append("")
 
-    instruction = str(row[14]).strip()  # Column O = index 14
+    instruction = str(row[14]).strip()
 
     if not instruction:
         continue
 
-    row_number  = i + 1  # 1-indexed for gspread
-    brand_name  = str(row[0]).strip()   # Column A
-    old_caption = str(row[6]).strip()   # Column G
+    found_any = True
+    row_number  = i + 1
+    brand_name  = str(row[0]).strip()
+    old_caption = str(row[6]).strip()
 
     print(f"  REWRITE Row {row_number}: {brand_name} — {instruction[:60]}")
 
@@ -407,20 +415,18 @@ for i, row in enumerate(all_rows):
             continue
 
         new_caption = result["choices"][0]["message"]["content"].strip()
-
         print(f"  New caption: {new_caption[:80]}...")
 
-        # Write new caption to Column G (7)
         worksheet.update_cell(row_number, 7, new_caption)
-
-        # Clear Column O (15)
         worksheet.update_cell(row_number, 15, "")
 
         print(f"  ✅ Rewritten & Column O cleared — Row {row_number}")
 
     except Exception as e:
-
         print(f"  REWRITE ERROR: {str(e)}")
+
+if not found_any:
+    print("  No instructions found in Column O")
 
 # =========================
 # SUMMARY
