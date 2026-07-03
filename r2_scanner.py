@@ -1,71 +1,21 @@
 import os
 import json
-import re
-import gspread
-import boto3
+import time
+import pandas as pd
 import requests
+import gspread
 
-from groq import Groq
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
+import boto3
 from zoneinfo import ZoneInfo
-from botocore.config import Config
-from urllib.parse import unquote, quote
 from oauth2client.service_account import ServiceAccountCredentials
 
-# =========================
-# R2 SCANNER V2
-# =========================
-
 print("=================================")
-print("R2 SCANNER V2")
+print("SOCIAL MEDIA SCHEDULER V6")
 print("=================================")
 
 # =========================
-# CONFIG
-# =========================
-
-R2_BUCKET_NAME     = os.getenv("R2_BUCKET_NAME")
-R2_ACCOUNT_ID      = os.getenv("R2_ACCOUNT_ID")
-R2_ACCESS_KEY      = os.getenv("R2_ACCESS_KEY")
-R2_SECRET_KEY      = os.getenv("R2_SECRET_KEY")
-R2_BASE_URL        = "https://pub-32b66fd1abca4fbb80e6e1facbabb289.r2.dev"
-R2_ENDPOINT        = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-GROQ_API_KEY       = os.getenv("GROQ_API_KEY")
-SPREADSHEET_ID     = os.getenv("SPREADSHEET_ID")
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS")
-
-SHEET_NAME         = "Sheet1"
-
-# =========================
-# BRANDS CONFIG
-# =========================
-
-BRANDS = {
-    "Pearl": {
-        "tone": "passionate, premium, drummer community",
-        "r2_folder": "Pearl"
-    },
-    "Meinl Cymbals": {
-        "tone": "professional, inspiring, percussionist community",
-        "r2_folder": "Meinl Cymbals"
-    },
-    "Meinl Percussion": {
-        "tone": "vibrant, world music, rhythmic",
-        "r2_folder": "Meinl Percussion"
-    },
-    "Meinl Sticks and Brush India": {
-        "tone": "focused, craftsmanship, drummer essentials, stick and brush artistry",
-        "r2_folder": "Meinl Stick and Brush"
-    },
-    "Konig": {
-        "tone": "innovative, precision engineering, music stands",
-        "r2_folder": "Konig and Meyer"
-    }
-}
-
-# =========================
-# GOOGLE SHEETS AUTH
+# GOOGLE AUTH
 # =========================
 
 scope = [
@@ -73,295 +23,746 @@ scope = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-creds_dict = json.loads(GOOGLE_CREDENTIALS)
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-gc = gspread.authorize(creds)
-spreadsheet = gc.open_by_key(SPREADSHEET_ID)
-worksheet = spreadsheet.worksheet(SHEET_NAME)
+service_account_info = json.loads(
+    os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+)
 
-print("Google Sheets connected ✅")
+creds = ServiceAccountCredentials.from_json_keyfile_dict(
+    service_account_info,
+    scope
+)
+
+client = gspread.authorize(creds)
+
+sheet = client.open_by_key(
+    os.environ["GOOGLE_SHEET_ID"]
+)
+
+worksheet = sheet.worksheet("Sheet1")
+
+data = worksheet.get_all_records()
+
+df = pd.DataFrame(data)
+
+print(df)
 
 # =========================
-# R2 CLIENT
+# BRANDS
 # =========================
 
-s3 = boto3.client(
+BRANDS = {
+
+    "Meinl Percussion": {
+        "token": os.getenv("MEINL_PERC_TOKEN"),
+        "ig_id": os.getenv("MEINL_PERC_IG_ID"),
+        "fb_page_id": "1491070334469768"
+    },
+
+    "Meinl Cymbals": {
+        "token": os.getenv("MEINL_CYM_TOKEN"),
+        "ig_id": os.getenv("MEINL_CYM_IG_ID"),
+        "fb_page_id": "1493683980877757"
+    },
+
+    "Pearl": {
+        "token": os.getenv("PEARL_TOKEN"),
+        "ig_id": os.getenv("PEARL_IG_ID"),
+        "fb_page_id": "983549558331087"
+    },
+
+    "Konig": {
+        "token": os.getenv("KM_TOKEN"),
+        "ig_id": os.getenv("KM_IG_ID"),
+        "fb_page_id": "101189549616697"
+    },
+
+    "Meinl Sticks and Brush India": {
+        "token": os.getenv("MSB_TOKEN"),
+        "ig_id": os.getenv("MSB_IG_ID"),
+        "fb_page_id": "331266536738875"
+    },
+
+    # Backward Compatibility
+
+    "Meinl Percussion India": {
+        "token": os.getenv("MEINL_PERC_TOKEN"),
+        "ig_id": os.getenv("MEINL_PERC_IG_ID"),
+        "fb_page_id": "1491070334469768"
+    },
+
+    "Meinl Cymbals India": {
+        "token": os.getenv("MEINL_CYM_TOKEN"),
+        "ig_id": os.getenv("MEINL_CYM_IG_ID"),
+        "fb_page_id": "1493683980877757"
+    },
+
+    "Pearl Drums India": {
+        "token": os.getenv("PEARL_TOKEN"),
+        "ig_id": os.getenv("PEARL_IG_ID"),
+        "fb_page_id": "983549558331087"
+    },
+
+    "Konig & Meyer India": {
+        "token": os.getenv("KM_TOKEN"),
+        "ig_id": os.getenv("KM_IG_ID"),
+        "fb_page_id": "101189549616697"
+    },
+
+    "Meinl Stick and Brush": {
+        "token": os.getenv("MSB_TOKEN"),
+        "ig_id": os.getenv("MSB_IG_ID"),
+        "fb_page_id": "331266536738875"
+    }
+
+}
+
+# =========================
+# META USER TOKEN
+# =========================
+
+META_USER_TOKEN = os.getenv("META_USER_TOKEN")
+
+# =========================
+# R2 CLIENT (boto3)
+# =========================
+
+R2_ACCOUNT_ID        = os.getenv("R2_ACCOUNT_ID")
+R2_ACCESS_KEY_ID     = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_ACCESS_KEY = os.getenv("R2_SECRET_ACCESS_KEY")
+R2_BUCKET_NAME       = os.getenv("R2_BUCKET_NAME")
+
+r2_client = boto3.client(
     "s3",
-    endpoint_url=R2_ENDPOINT,
-    aws_access_key_id=R2_ACCESS_KEY,
-    aws_secret_access_key=R2_SECRET_KEY,
-    config=Config(signature_version="s3v4"),
+    endpoint_url=f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com",
+    aws_access_key_id=R2_ACCESS_KEY_ID,
+    aws_secret_access_key=R2_SECRET_ACCESS_KEY,
     region_name="auto"
 )
 
-print("R2 connected ✅")
 
-# =========================
-# GROQ CLIENT
-# =========================
+def delete_r2_files(media_urls):
 
-groq_client = Groq(api_key=GROQ_API_KEY)
+    for media_url in media_urls:
 
-print("Groq connected ✅")
+        media_url = media_url.strip()
 
-# =========================
-# HELPERS
-# =========================
-
-def natural_sort_key(s):
-    return [
-        int(c) if c.isdigit() else c.lower()
-        for c in re.split(r'(\d+)', s)
-    ]
-
-
-def list_r2_files(prefix):
-    try:
-        response = s3.list_objects_v2(
-            Bucket=R2_BUCKET_NAME,
-            Prefix=prefix
-        )
-        return [
-            obj["Key"]
-            for obj in response.get("Contents", [])
-            if not obj["Key"].endswith("/")
-        ]
-    except Exception as e:
-        print(f"R2 LIST ERROR: {e}")
-        return []
-
-
-def encode_url(url):
-    parts = url.split(".r2.dev/", 1)
-    if len(parts) == 2:
-        encoded_path = quote(unquote(parts[1]), safe="/")
-        return f"{parts[0]}.r2.dev/{encoded_path}"
-    return url
-
-
-def get_existing_urls():
-    rows = worksheet.get_all_records()
-    urls = set()
-    for row in rows:
-        media = str(row.get("MediaURLs", "")).strip()
-        if media:
-            for u in media.split("|"):
-                u = u.strip()
-                if u:
-                    urls.add(unquote(u))
-    return urls
-
-
-def get_next_publish_slot():
-    rows = worksheet.get_all_records()
-    ist = ZoneInfo("Asia/Kolkata")
-    now = datetime.now(ist)
-
-    scheduled = []
-    for row in rows:
-        try:
-            dt_str = f"{row['PublishDate']} {row['PublishTime']}"
-            dt = datetime.strptime(dt_str, "%d-%m-%Y %H:%M").replace(tzinfo=ist)
-            scheduled.append(dt)
-        except Exception:
+        if not media_url:
             continue
 
-    candidate = now.replace(second=0, microsecond=0)
-    if candidate.minute < 30:
-        candidate = candidate.replace(minute=30)
-    else:
-        candidate = candidate.replace(minute=0) + timedelta(hours=1)
+        try:
 
-    if candidate <= now + timedelta(minutes=29):
-        candidate += timedelta(minutes=30)
+            parts = media_url.split(".r2.dev/")
 
-    while True:
-        if candidate not in scheduled:
-            return (
-                candidate.strftime("%d-%m-%Y"),
-                candidate.strftime("%H:%M")
+            if len(parts) < 2:
+                print("R2 DELETE: Could not parse URL:", media_url)
+                continue
+
+            file_key = parts[1]
+
+            print("R2 DELETE: Deleting file:", file_key)
+
+            r2_client.delete_object(
+                Bucket=R2_BUCKET_NAME,
+                Key=file_key
             )
-        candidate += timedelta(minutes=30)
 
+            print("R2 DELETE: Success:", file_key)
 
-def add_row_to_sheet(brand, content_type, media_urls_str, caption, publish_date, publish_time):
-    worksheet.append_row([
-        brand,
-        "Instagram",
-        content_type,
-        publish_date,
-        publish_time,
-        media_urls_str,
-        caption,
-        "Approved",
-        "",   # PostID (Col I)
-        "",   # TokenStatus (Col J)
-        "",   # LastCheck (Col K)
-        "",   # DataAccessExpiry (Col L)
-        "",   # FB PostID (Col M)
-        ""    # R2Status (Col N)
-    ])
-    print(f"  ✅ Row added: {brand} | {content_type} | {publish_date} {publish_time}")
+        except Exception as e:
+
+            print("R2 DELETE ERROR:", str(e))
 
 
 # =========================
-# CAPTION GENERATION (GROQ)
+# TOKEN VALIDATION
 # =========================
 
-def generate_caption(brand_name, content_type, media_urls, tone):
+def validate_token(token, brand):
+
     try:
-        if content_type in ("Image", "Carousel"):
-            image_url = media_urls[0]
-            print(f"  Generating vision caption for: {image_url}")
 
-            response = groq_client.chat.completions.create(
-                model="meta-llama/llama-4-scout-17b-16e-instruct",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": image_url}
-                            },
-                            {
-                                "type": "text",
-                                "text": (
-                                    f"You are a social media manager for {brand_name}. "
-                                    f"Brand tone: {tone}. "
-                                    f"Look at this image carefully and write an engaging Instagram caption "
-                                    f"that describes what you see and connects it to the brand. "
-                                    f"Keep it under 150 words. End with exactly 5 relevant hashtags."
-                                )
-                            }
-                        ]
-                    }
-                ],
-                max_tokens=300
+        response = requests.get(
+            "https://graph.facebook.com/v23.0/me",
+            params={
+                "access_token": token
+            }
+        )
+
+        result = response.json()
+
+        if "error" in result:
+
+            print("=================================")
+            print("TOKEN FAILED:", brand)
+            print(result)
+            print("=================================")
+
+            return False
+
+        print("TOKEN OK:", brand)
+
+        return True
+
+    except Exception as e:
+
+        print("TOKEN CHECK ERROR:", brand)
+        print(str(e))
+
+        return False
+
+
+def update_token_status(row_number, status):
+
+    worksheet.update_cell(
+        row_number,
+        10,
+        status
+    )
+
+
+def update_last_check(row_number):
+
+    worksheet.update_cell(
+        row_number,
+        11,
+        datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        ).strftime("%d-%m-%Y %H:%M:%S")
+    )
+
+
+def update_data_access_expiry(token, row_number):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/debug_token",
+            params={
+                "input_token": token,
+                "access_token": META_USER_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print("TOKEN DEBUG:")
+        print(result)
+
+        expiry = (
+            result
+            .get("data", {})
+            .get("data_access_expires_at")
+        )
+
+        if expiry:
+
+            expiry_date = datetime.fromtimestamp(
+                expiry
+            ).strftime("%d-%m-%Y %H:%M:%S")
+
+            worksheet.update_cell(
+                row_number,
+                12,
+                expiry_date
             )
+
+    except Exception as e:
+
+        print("DATA ACCESS ERROR:", str(e))
+
+
+def get_token_expiry(access_token):
+
+    try:
+
+        response = requests.get(
+            "https://graph.facebook.com/debug_token",
+            params={
+                "input_token": access_token,
+                "access_token": META_USER_TOKEN
+            }
+        )
+
+        result = response.json()
+
+        print("TOKEN DEBUG RESPONSE:")
+        print(result)
+
+        if (
+            "data" in result and
+            "data_access_expires_at" in result["data"]
+        ):
+
+            expiry_timestamp = result["data"][
+                "data_access_expires_at"
+            ]
+
+            expiry_date = datetime.fromtimestamp(
+                expiry_timestamp
+            )
+
+            return expiry_date.strftime("%d-%m-%Y")
+
+        return "Unknown"
+
+    except Exception as e:
+
+        print("TOKEN EXPIRY ERROR:", str(e))
+
+        return "Unknown"
+
+
+# =========================
+# FACEBOOK POSTING
+# =========================
+
+def post_to_facebook(
+    content_type,
+    media_urls,
+    caption,
+    access_token,
+    fb_page_id
+):
+
+    try:
+
+        # ---- REEL ----
+        if content_type.lower() == "reel":
+
+            media_url = media_urls[0].strip()
+
+            print("FB: Uploading reel:", media_url)
+
+            upload_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/video_reels",
+                data={
+                    "upload_phase": "start",
+                    "access_token": access_token
+                }
+            )
+
+            upload_result = upload_response.json()
+
+            print("FB Reel Upload Start:", upload_result)
+
+            if "video_id" not in upload_result:
+                print("FB REEL ERROR: No video_id")
+                return None
+
+            video_id = upload_result["video_id"]
+
+            finish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/video_reels",
+                data={
+                    "upload_phase": "finish",
+                    "video_id": video_id,
+                    "video_state": "PUBLISHED",
+                    "description": caption,
+                    "file_url": media_url,
+                    "access_token": access_token
+                }
+            )
+
+            finish_result = finish_response.json()
+
+            print("FB Reel Finish:", finish_result)
+
+            if finish_result.get("success"):
+                return video_id
+
+            return None
+
+        # ---- SINGLE IMAGE ----
+        elif len(media_urls) == 1:
+
+            media_url = media_urls[0].strip()
+
+            print("FB: Posting image:", media_url)
+
+            response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/photos",
+                data={
+                    "url": media_url,
+                    "caption": caption,
+                    "access_token": access_token
+                }
+            )
+
+            result = response.json()
+
+            print("FB Image Result:", result)
+
+            return result.get("post_id") or result.get("id")
+
+        # ---- CAROUSEL ----
+        else:
+
+            photo_ids = []
+
+            for media_url in media_urls:
+
+                media_url = media_url.strip()
+
+                if not media_url:
+                    continue
+
+                photo_response = requests.post(
+                    f"https://graph.facebook.com/v23.0/{fb_page_id}/photos",
+                    data={
+                        "url": media_url,
+                        "published": "false",
+                        "access_token": access_token
+                    }
+                )
+
+                photo_result = photo_response.json()
+
+                print("FB Carousel Photo:", photo_result)
+
+                if "id" in photo_result:
+                    photo_ids.append(
+                        {"media_fbid": photo_result["id"]}
+                    )
+
+            if not photo_ids:
+                print("FB CAROUSEL ERROR: No photos uploaded")
+                return None
+
+            feed_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{fb_page_id}/feed",
+                data={
+                    "message": caption,
+                    "attached_media": json.dumps(photo_ids),
+                    "access_token": access_token
+                }
+            )
+
+            feed_result = feed_response.json()
+
+            print("FB Carousel Feed:", feed_result)
+
+            return feed_result.get("id")
+
+    except Exception as e:
+
+        print("FB POST ERROR:", str(e))
+
+        return None
+
+
+# =========================
+# PROCESS POSTS
+# =========================
+
+for index, row in df.iterrows():
+
+    try:
+
+        print("---------------------------------")
+        print("Row:", index + 2)
+        print(
+            "Time:",
+            datetime.now(
+                ZoneInfo("Asia/Kolkata")
+            ).strftime("%d-%m-%Y %H:%M:%S")
+        )
+
+        status = str(row["Status"]).strip()
+
+        post_id = str(row["PostID"]).strip()
+
+        if status == "Posted":
+            continue
+
+        if status != "Approved":
+            continue
+
+        if post_id != "":
+            print("ALREADY POSTED - SKIPPING")
+            continue
+
+        date_string = f"{row['PublishDate']} {row['PublishTime']}"
+
+        publish_datetime = datetime.strptime(
+            date_string,
+            "%d-%m-%Y %H:%M"
+        ).replace(
+            tzinfo=ZoneInfo("Asia/Kolkata")
+        )
+
+        current_time = datetime.now(
+            ZoneInfo("Asia/Kolkata")
+        )
+
+        print("Scheduled:", publish_datetime)
+        print("Current:", current_time)
+        print("Timezone:", current_time.tzinfo)
+
+        if current_time < publish_datetime:
+            print("Not yet time to publish.")
+            continue
+
+        brand = str(row["Brand"]).strip()
+
+        if brand not in BRANDS:
+            print("Unknown Brand:", brand)
+            continue
+
+        ACCESS_TOKEN  = BRANDS[brand]["token"]
+        IG_ACCOUNT_ID = BRANDS[brand]["ig_id"]
+        FB_PAGE_ID    = BRANDS[brand]["fb_page_id"]
+
+        worksheet.update_cell(index + 2, 10, "Checking")
+
+        token_ok = validate_token(ACCESS_TOKEN, brand)
+
+        update_last_check(index + 2)
+
+        if token_ok:
+
+            update_token_status(index + 2, "Valid")
+
+            update_data_access_expiry(ACCESS_TOKEN, index + 2)
 
         else:
-            print(f"  Generating text caption for reel...")
 
-            response = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": (
-                            f"You are a social media manager for {brand_name}. "
-                            f"Brand tone: {tone}. "
-                            f"Write an engaging Instagram Reel caption for a new product/brand video. "
-                            f"Keep it under 150 words. End with exactly 5 relevant hashtags."
-                        )
-                    }
-                ],
-                max_tokens=300
+            update_token_status(index + 2, "Invalid")
+
+        if not token_ok:
+
+            worksheet.update_cell(index + 2, 8, "Failed")
+
+            continue
+
+        content_type = str(row["ContentType"]).strip()
+
+        caption = str(row["Caption"]).strip()
+
+        media_urls = str(row["MediaURLs"]).split("|")
+
+        print("Brand:", brand)
+        print("Type:", content_type)
+
+        media_ids = []
+
+        # =========================
+        # REEL
+        # =========================
+
+        if content_type.lower() == "reel":
+
+            media_url = media_urls[0].strip()
+
+            print("Creating reel:", media_url)
+
+            create_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "media_type": "REELS",
+                    "video_url": media_url,
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
             )
 
-        caption = response.choices[0].message.content.strip()
-        print(f"  Caption generated ✅")
-        return caption
+            create_result = create_response.json()
+
+            print(create_result)
+
+            if "error" in create_result:
+                print("REEL ERROR:")
+                print(create_result)
+
+            if "id" not in create_result:
+
+                worksheet.update_cell(index + 2, 8, "Failed")
+
+                continue
+
+            creation_id = create_result["id"]
+
+            print("Waiting for reel processing...")
+
+            time.sleep(180)
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": creation_id,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        # =========================
+        # SINGLE IMAGE
+        # =========================
+
+        elif len(media_urls) == 1:
+
+            media_url = media_urls[0].strip()
+
+            print("Creating image:", media_url)
+
+            create_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "image_url": media_url,
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            create_result = create_response.json()
+
+            print(create_result)
+
+            if "id" not in create_result:
+
+                worksheet.update_cell(index + 2, 8, "Failed")
+
+                continue
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": create_result["id"],
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        # =========================
+        # CAROUSEL
+        # =========================
+
+        else:
+
+            for media_url in media_urls:
+
+                media_url = media_url.strip()
+
+                if media_url == "":
+                    continue
+
+                print("Creating carousel image:", media_url)
+
+                create_response = requests.post(
+                    f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                    data={
+                        "image_url": media_url,
+                        "is_carousel_item": "true",
+                        "access_token": ACCESS_TOKEN
+                    }
+                )
+
+                create_result = create_response.json()
+
+                print(create_result)
+
+                if "id" in create_result:
+                    media_ids.append(create_result["id"])
+
+            if len(media_ids) == 0:
+
+                worksheet.update_cell(index + 2, 8, "Failed")
+
+                continue
+
+            carousel_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
+                data={
+                    "media_type": "CAROUSEL",
+                    "children": ",".join(media_ids),
+                    "caption": caption,
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            carousel_result = carousel_response.json()
+
+            print(carousel_result)
+
+            if "id" not in carousel_result:
+
+                worksheet.update_cell(index + 2, 8, "Failed")
+
+                continue
+
+            publish_response = requests.post(
+                f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
+                data={
+                    "creation_id": carousel_result["id"],
+                    "access_token": ACCESS_TOKEN
+                }
+            )
+
+            publish_result = publish_response.json()
+
+        print("Instagram Publish Result:")
+        print(publish_result)
+
+        if "id" in publish_result:
+
+            worksheet.update_cell(index + 2, 8, "Posted")
+
+            worksheet.update_cell(index + 2, 9, publish_result["id"])
+
+            print("INSTAGRAM POSTED SUCCESSFULLY")
+
+            # =========================
+            # R2 CLEANUP
+            # =========================
+
+            print("Cleaning up R2 files...")
+
+            urls_to_delete = [
+                u.strip()
+                for u in media_urls
+                if u.strip() != ""
+            ]
+
+            delete_r2_files(urls_to_delete)
+
+            worksheet.update_cell(index + 2, 14, "Deleted")
+
+            # =========================
+            # FACEBOOK POSTING
+            # =========================
+
+            print("Now posting to Facebook...")
+
+            fb_post_id = post_to_facebook(
+                content_type,
+                media_urls,
+                caption,
+                ACCESS_TOKEN,
+                FB_PAGE_ID
+            )
+
+            if fb_post_id:
+
+                worksheet.update_cell(index + 2, 13, fb_post_id)
+
+                print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
+
+            else:
+
+                print("FACEBOOK POST FAILED - Instagram was still successful")
+
+        else:
+
+            worksheet.update_cell(index + 2, 8, "Failed")
+
+            print("INSTAGRAM POST FAILED")
 
     except Exception as e:
-        print(f"  Groq caption error: {e}")
-        return f"New content from {brand_name}. #music #drums #percussion #instruments #india"
+
+        print("ERROR:", str(e))
 
 
-# =========================
-# MAIN SCAN LOOP
-# =========================
-
-data = worksheet.get_all_records()
-existing_urls = get_existing_urls()
-
-print(f"\nFound {len(existing_urls)} existing URLs in sheet\n")
-
-new_rows_added = 0
-
-for brand_name, config in BRANDS.items():
-
-    folder = config["r2_folder"]
-    tone   = config["tone"]
-
-    print(f"--- Scanning: {brand_name} ({folder}/) ---")
-
-    # ── PHOTOS ───────────────────────────────────────────
-    photo_keys = [
-        k for k in list_r2_files(f"{folder}/Photos/")
-        if k.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
-
-    for key in photo_keys:
-        public_url = unquote(f"{R2_BASE_URL}/{key}")
-
-        if public_url in existing_urls:
-            print(f"  SKIP (exists): {key.split('/')[-1]}")
-            continue
-
-        print(f"  NEW Photo: {key.split('/')[-1]}")
-        caption = generate_caption(brand_name, "Image", [encode_url(f"{R2_BASE_URL}/{key}")], tone)
-        publish_date, publish_time = get_next_publish_slot()
-        add_row_to_sheet(brand_name, "Image", encode_url(f"{R2_BASE_URL}/{key}"), caption, publish_date, publish_time)
-        existing_urls.add(public_url)
-        new_rows_added += 1
-
-    # ── REELS ────────────────────────────────────────────
-    reel_keys = [
-        k for k in list_r2_files(f"{folder}/Reels/")
-        if k.lower().endswith(".mp4")
-    ]
-    reel_keys += [
-        k for k in list_r2_files(f"{folder}/Reel/")
-        if k.lower().endswith(".mp4")
-    ]
-
-    for key in reel_keys:
-        public_url = unquote(f"{R2_BASE_URL}/{key}")
-
-        if public_url in existing_urls:
-            print(f"  SKIP (exists): {key.split('/')[-1]}")
-            continue
-
-        print(f"  NEW Reel: {key.split('/')[-1]}")
-        caption = generate_caption(brand_name, "Reel", [encode_url(f"{R2_BASE_URL}/{key}")], tone)
-        publish_date, publish_time = get_next_publish_slot()
-        add_row_to_sheet(brand_name, "Reel", encode_url(f"{R2_BASE_URL}/{key}"), caption, publish_date, publish_time)
-        existing_urls.add(public_url)
-        new_rows_added += 1
-
-    # ── CAROUSEL ─────────────────────────────────────────
-    carousel_base = f"{folder}/Carousel/"
-
-    all_carousel_keys = [
-        k for k in list_r2_files(carousel_base)
-        if k.lower().endswith((".jpg", ".jpeg", ".png"))
-    ]
-
-    carousel_groups = {}
-    for key in all_carousel_keys:
-        parts = key.split("/")
-        subfolder = parts[2] if len(parts) >= 4 else "default"
-        carousel_groups.setdefault(subfolder, []).append(key)
-
-    for subfolder, keys in carousel_groups.items():
-        urls = [encode_url(f"{R2_BASE_URL}/{k}") for k in keys]
-        urls = sorted(urls, key=natural_sort_key)
-        raw_urls = [unquote(u) for u in urls]
-
-        if any(u in existing_urls for u in raw_urls):
-            print(f"  SKIP Carousel (exists): {subfolder}")
-            continue
-
-        print(f"  NEW Carousel: {subfolder} ({len(urls)} images)")
-        caption = generate_caption(brand_name, "Carousel", urls, tone)
-        publish_date, publish_time = get_next_publish_slot()
-        add_row_to_sheet(brand_name, "Carousel", "|".join(urls), caption, publish_date, publish_time)
-
-        for u in raw_urls:
-            existing_urls.add(u)
-        new_rows_added += 1
-
-print(f"\n=================================")
-print(f"SCANNER FINISHED — {new_rows_added} new rows added")
-print(f"=================================")
+print("=================================")
+print("SCHEDULER FINISHED")
+print("=================================")
