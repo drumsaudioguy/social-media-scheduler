@@ -553,6 +553,9 @@ for index, row in df.iterrows():
                 worksheet.update_cell(index + 2, 8, "Failed")
                 continue
 
+            print("Waiting for image processing...")
+            time.sleep(30)
+
             publish_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media_publish",
                 data={
