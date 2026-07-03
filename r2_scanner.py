@@ -184,7 +184,7 @@ def generate_caption(brand_name, content_type, urls, tone):
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-8b-8192",
+                "model": "llama-3.1-8b-instant",
                 "messages": [
                     {
                         "role": "user",
@@ -197,6 +197,10 @@ def generate_caption(brand_name, content_type, urls, tone):
         )
 
         result = response.json()
+
+        if "choices" not in result:
+            print("GROQ FULL RESPONSE:", result)
+            return f"New post from {brand_name}."
 
         caption = result["choices"][0]["message"]["content"].strip()
 
