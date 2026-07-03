@@ -24,7 +24,6 @@ scope = [
 ]
 
 service_account_info = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-)
 
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
     service_account_info,
@@ -34,7 +33,6 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 client = gspread.authorize(creds)
 
 sheet = client.open_by_key(os.environ["SPREADSHEET_ID"])
-)
 
 worksheet = sheet.worksheet("Sheet1")
 
