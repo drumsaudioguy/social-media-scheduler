@@ -4,23 +4,20 @@ import json
 import boto3
 import gspread
 import requests
-import base64
 
-from google import genai
-from google.genai import types
-
-from datetime import datetime, date
+from openai import OpenAI
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from botocore.config import Config
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from oauth2client.service_account import ServiceAccountCredentials
 
 # =========================
-# R2 SCANNER V1
+# R2 SCANNER V2
 # =========================
 
 print("=================================")
-print("R2 SCANNER V1")
+print("R2 SCANNER V2")
 print("=================================")
 
 # =========================
@@ -34,7 +31,7 @@ R2_SECRET_KEY       = os.getenv("R2_SECRET_KEY")
 R2_BASE_URL         = "https://pub-32b66fd1abca4fbb80e6e1facbabb289.r2.dev"
 R2_ENDPOINT         = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
-GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY")
+OPENAI_API_KEY      = os.getenv("OPENAI_API_KEY")
 SPREADSHEET_ID      = os.getenv("SPREADSHEET_ID")
 GOOGLE_CREDENTIALS  = os.getenv("GOOGLE_CREDENTIALS")
 
@@ -99,12 +96,12 @@ s3 = boto3.client(
 print("R2 connected ✅")
 
 # =========================
-# GEMINI SETUP
+# OPENAI SETUP
 # =========================
 
-gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+openai_client = OpenAI(api_key=OPENAI_API_KEY)
 
-print("Gemini connected ✅")
+print("OpenAI connected ✅")
 
 # =========================
 # HELPER: NATURAL SORT
@@ -144,96 +141,96 @@ def get_existing_media_urls():
     return existing
 
 # =========================
-# HELPER: DOWNLOAD FILE AS BASE64
-# =========================
-
-def download_as_base64(url):
-    """Download file from R2 and return (base64_data, mime_type)."""
-    headers = {"User-Agent": "Mozilla/5.0 (compatible; R2Scanner/1.0)"}
-    response = requests.get(url, headers=headers, timeout=60)
-    response.raise_for_status()
-    ext = url.split(".")[-1].split("?")[0].lower()
-    mime_map = {
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "mp4": "video/mp4"
-    }
-    mime_type = mime_map.get(ext, "image/jpeg")
-    b64_data = base64.b64encode(response.content).decode("utf-8")
-    return b64_data, mime_type
-
-# =========================
-# HELPER: GENERATE CAPTION WITH GEMINI
+# HELPER: GENERATE CAPTION WITH GPT-4o
 # =========================
 
 def generate_caption(brand_name, content_type, urls, tone):
-    """Send media to Gemini Vision and get a creative caption."""
+    """Use GPT-4o Vision to generate a creative caption."""
     try:
         if content_type == "Reel":
+            # GPT-4o cannot watch video — use filename + brand tone for creative caption
+            filename = urls[0].split("/")[-1].split("?")[0]
             prompt = (
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
-                f"Watch this video and write one short, punchy caption for an Instagram Reel. "
+                f"Write one short, punchy caption for an Instagram Reel for this brand. "
+                f"The video filename is: {filename}. Use it as a clue about the content. "
                 f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            b64_data, mime_type = download_as_base64(urls[0])
-            response = gemini_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[
-                    prompt,
-                    types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type)
-                ]
+            response = openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=300
             )
 
         elif content_type == "Image":
             prompt = (
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
-                f"Look at this image and write one short, punchy caption for an Instagram post. "
+                f"Look at this image carefully and write one short, punchy caption for an Instagram post. "
                 f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            b64_data, mime_type = download_as_base64(urls[0])
-            response = gemini_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[
-                    prompt,
-                    types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type)
-                ]
+            response = openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": urls[0], "detail": "high"}}
+                    ]
+                }],
+                max_tokens=300
             )
 
         elif content_type == "Carousel":
             prompt = (
                 f"You are a creative social media copywriter for {brand_name}. "
                 f"Brand tone: {tone}. "
-                f"Look at all these {len(urls)} images together as one cohesive carousel post. "
+                f"Look at all {len(urls)} images together as one cohesive carousel post. "
                 f"Write ONE single caption for the entire carousel, not per image. "
                 f"No emojis, no generic phrases. End with exactly 5 relevant hashtags. "
                 f"Be original and unexpected. Write like a human, not a marketer. "
                 f"One caption only."
             )
-            parts = [prompt]
+            content_parts = [{"type": "text", "text": prompt}]
             for url in urls:
-                b64_data, mime_type = download_as_base64(url)
-                parts.append(
-                    types.Part.from_bytes(data=base64.b64decode(b64_data), mime_type=mime_type)
-                )
-            response = gemini_client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=parts
+                content_parts.append({
+                    "type": "image_url",
+                    "image_url": {"url": url, "detail": "high"}
+                })
+            response = openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "user", "content": content_parts}],
+                max_tokens=300
             )
 
-        caption = response.text.strip()
-        print(f"  Gemini caption: {caption[:80]}...")
+        caption = response.choices[0].message.content.strip()
+        print(f"  GPT-4o caption: {caption[:80]}...")
         return caption
 
     except Exception as e:
-        print(f"  Gemini error: {e}")
+        print(f"  GPT-4o error: {e}")
         return f"New post from {brand_name}."
+
+# =========================
+# HELPER: DELETE FROM R2
+# =========================
+
+def delete_from_r2(public_url):
+    """Delete a file from R2 using its public URL."""
+    try:
+        # Strip base URL to get the key, then decode %20 etc back to real characters
+        key = unquote(public_url.replace(f"{R2_BASE_URL}/", ""))
+        s3.delete_object(Bucket=R2_BUCKET_NAME, Key=key)
+        print(f"  🗑️ Deleted from R2: {key.split('/')[-1]}")
+        return True
+    except Exception as e:
+        print(f"  ❌ R2 delete failed for {public_url.split('/')[-1]}: {e}")
+        return False
 
 # =========================
 # HELPER: GET NEXT PUBLISH SLOT
@@ -280,6 +277,17 @@ def add_row_to_sheet(brand, content_type, media_urls_str, caption, publish_date,
     ]
     worksheet.append_row(new_row, value_input_option="USER_ENTERED")
     print(f"  ✅ Row added: {brand} | {content_type} | {publish_date} {publish_time}")
+
+# =========================
+# HELPER: UPDATE R2 STATUS IN SHEET
+# =========================
+
+def update_r2_status(row_index, status):
+    """Update Column N (R2Status) for a given row."""
+    try:
+        worksheet.update_cell(row_index, 14, status)
+    except Exception as e:
+        print(f"  ❌ Failed to update R2Status: {e}")
 
 # =========================
 # MAIN SCANNER LOGIC
@@ -365,6 +373,57 @@ for brand_name, brand_config in BRANDS.items():
         for u in urls:
             existing_urls.add(u)
         new_rows_added += 1
+
+# =========================
+# R2 CLEANUP — DELETE POSTED FILES
+# =========================
+
+print("\n--- R2 Cleanup: Checking for posted files to delete ---")
+
+all_rows = worksheet.get_all_values()
+deleted_count = 0
+failed_count = 0
+
+for i, row in enumerate(all_rows):
+    row_index = i + 1  # Google Sheets is 1-indexed
+
+    # Skip header row
+    if row_index == 1:
+        continue
+
+    # Need at least 14 columns
+    if len(row) < 14:
+        continue
+
+    status    = row[7].strip()   # Column H - Status
+    media_url = row[5].strip()   # Column F - MediaURLs
+    r2_status = row[13].strip()  # Column N - R2Status
+
+    # Only delete if posted and not already deleted
+    if status != "Posted":
+        continue
+    if r2_status == "Deleted":
+        continue
+    if not media_url:
+        continue
+
+    # Handle multiple URLs (carousel uses | separator)
+    urls_to_delete = [u.strip() for u in media_url.split("|") if u.strip()]
+    all_deleted = True
+
+    for url in urls_to_delete:
+        success = delete_from_r2(url)
+        if not success:
+            all_deleted = False
+
+    if all_deleted:
+        update_r2_status(row_index, "Deleted")
+        deleted_count += 1
+    else:
+        update_r2_status(row_index, "DeleteFailed")
+        failed_count += 1
+
+print(f"R2 Cleanup done — {deleted_count} deleted, {failed_count} failed")
 
 # =========================
 # SUMMARY
