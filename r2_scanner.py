@@ -351,9 +351,12 @@ print("\n--- AI Rewrite Pass ---")
 
 all_rows = worksheet.get_all_records()
 
+# Read all Column O values directly (bypass header name issue)
+col_o_values = worksheet.col_values(15)  # Column O = 15
+
 for i, row in enumerate(all_rows):
 
-    instruction = str(row.get("AI Rewrite Instruction", "")).strip()
+    instruction = str(col_o_values[i + 1] if i + 1 < len(col_o_values) else "").strip()
 
     if not instruction:
         continue
