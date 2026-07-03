@@ -77,6 +77,18 @@ BRANDS = {
         "fb_page_id": "101189549616697"
     },
 
+    "MSB": {
+        "token": os.getenv("MSB_TOKEN"),
+        "ig_id": os.getenv("MSB_IG_ID"),
+        "fb_page_id": "331266536738875"
+    },
+
+    "Meinl Sticks and Brush India": {
+        "token": os.getenv("MSB_TOKEN"),
+        "ig_id": os.getenv("MSB_IG_ID"),
+        "fb_page_id": "331266536738875"
+    },
+
     # Backward Compatibility
 
     "Meinl Percussion India": {
@@ -101,6 +113,12 @@ BRANDS = {
         "token": os.getenv("KM_TOKEN"),
         "ig_id": os.getenv("KM_IG_ID"),
         "fb_page_id": "101189549616697"
+    },
+
+    "Meinl Stick and Brush": {
+        "token": os.getenv("MSB_TOKEN"),
+        "ig_id": os.getenv("MSB_IG_ID"),
+        "fb_page_id": "331266536738875"
     }
 
 }
@@ -149,7 +167,6 @@ def delete_r2_files(media_urls):
                 all_success = False
                 continue
 
-            # unquote fixes %20 spaces — e.g. Konig%20and%20Meyer → Konig and Meyer
             file_key = unquote(parts[1])
 
             print("R2 DELETE: Deleting file:", file_key)
@@ -614,7 +631,6 @@ for index, row in df.iterrows():
 
         if "id" in publish_result:
 
-            # ── Mark Instagram Posted ──
             worksheet.update_cell(index + 2, 8, "Posted")
             worksheet.update_cell(index + 2, 9, publish_result["id"])
             print("INSTAGRAM POSTED SUCCESSFULLY")
