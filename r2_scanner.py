@@ -344,6 +344,76 @@ for brand_name, brand_config in BRANDS.items():
         new_rows_added += 1
 
 # =========================
+# AI REWRITE PASS (Column O)
+# =========================
+
+print("\n--- AI Rewrite Pass ---")
+
+all_rows = worksheet.get_all_records()
+
+for i, row in enumerate(all_rows):
+
+    instruction = str(row.get("AI Rewrite Instruction", "")).strip()
+
+    if not instruction:
+        continue
+
+    brand_name  = str(row.get("Brand", "")).strip()
+    content_type = str(row.get("ContentType", "")).strip()
+    old_caption = str(row.get("Caption", "")).strip()
+    row_number  = i + 2  # 1-indexed + header row
+
+    print(f"  REWRITE Row {row_number}: {brand_name} — Instruction: {instruction[:60]}")
+
+    tone = BRANDS.get(brand_name, {}).get("tone", "engaging, creative")
+
+    try:
+
+        prompt = (
+            f"You are a creative social media copywriter for {brand_name}. "
+            f"Brand tone: {tone}. "
+            f"Here is the current caption:\n\n{old_caption}\n\n"
+            f"Rewrite it based on this instruction: {instruction}\n\n"
+            f"Keep it under 150 words. Add 5-8 relevant hashtags at the end. "
+            f"Output only the new caption, nothing else."
+        )
+
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.1-8b-instant",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+                "temperature": 0.7
+            }
+        )
+
+        result = response.json()
+
+        if "choices" not in result:
+            print("  GROQ REWRITE ERROR:", result)
+            continue
+
+        new_caption = result["choices"][0]["message"]["content"].strip()
+
+        print(f"  New caption: {new_caption[:80]}...")
+
+        # Write new caption to Column G (7)
+        worksheet.update_cell(row_number, 7, new_caption)
+
+        # Clear Column O (15)
+        worksheet.update_cell(row_number, 15, "")
+
+        print(f"  ✅ Rewritten & Column O cleared")
+
+    except Exception as e:
+
+        print(f"  REWRITE ERROR: {str(e)}")
+# =========================
 # SUMMARY
 # =========================
 
