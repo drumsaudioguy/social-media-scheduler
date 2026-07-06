@@ -6,7 +6,7 @@ import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("CAPTION REWRITER V1.1")
+print("CAPTION REWRITER V1.2")
 print("=================================")
 
 # =========================
@@ -43,11 +43,9 @@ for index, row in df.iterrows():
     caption     = str(row.get("Caption", "")).strip()
     brand       = str(row.get("Brand", "")).strip()
 
-    # Skip if no instruction
     if not instruction:
         continue
 
-    # Skip if already posted
     if status == "Posted":
         print(f"Row {index + 2}: Skipping — already Posted")
         continue
@@ -100,8 +98,8 @@ Rules:
         new_caption = result["choices"][0]["message"]["content"].strip()
         print(f"  Rewritten   : {new_caption[:80]}...")
 
-        # Col E (5) = Caption, Col O (15) = AI Rewrite Instruction
-        worksheet.update_cell(index + 2, 5, new_caption)
+        # Col G (7) = Caption, Col O (15) = AI Rewrite Instruction
+        worksheet.update_cell(index + 2, 7, new_caption)
         worksheet.update_cell(index + 2, 15, "")
 
         print(f"  Row {index + 2}: Done — caption updated, instruction cleared")
