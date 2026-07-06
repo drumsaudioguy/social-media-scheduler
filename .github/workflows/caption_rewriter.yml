@@ -1,0 +1,27 @@
+name: Caption Rewriter
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Caption Rewriter
+        env:
+          SPREADSHEET_ID:      ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_CREDENTIALS:  ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GROQ_API_KEY:        ${{ secrets.GROQ_API_KEY }}
+        run: python caption_rewriter.py
