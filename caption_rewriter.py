@@ -77,7 +77,7 @@ Rules:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama3-8b-8192",
+                "model": "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.7,
                 "max_tokens": 1500
@@ -85,6 +85,10 @@ Rules:
             timeout=30
         )
         result = response.json()
+        print(f"  Groq response: {result}")
+        if "choices" not in result:
+        print(f"  GROQ ERROR: {result.get('error', result)}")
+        continue
         new_caption = result["choices"][0]["message"]["content"].strip()
 
         print(f"  Rewritten   : {new_caption[:80]}...")
