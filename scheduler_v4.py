@@ -68,7 +68,6 @@ BRANDS = {
         "ig_id": os.getenv("MSB_IG_ID"),
         "fb_page_id": "331266536738875"
     },
-    # Backward Compatibility
     "Meinl Percussion India": {
         "token": os.getenv("MEINL_PERC_TOKEN"),
         "ig_id": os.getenv("MEINL_PERC_IG_ID"),
@@ -306,7 +305,6 @@ def publish_with_retry(ig_account_id, creation_id, access_token, retries=3):
 
 def post_to_facebook(content_type, media_urls, caption, access_token, fb_page_id):
     try:
-        # ---- REEL ----
         if content_type.lower() == "reel":
             media_url = media_urls[0].strip()
             print("FB: Uploading reel:", media_url)
@@ -326,7 +324,6 @@ def post_to_facebook(content_type, media_urls, caption, access_token, fb_page_id
             print("FB REEL FAILED:", upload_result)
             return None
 
-        # ---- SINGLE IMAGE ----
         elif len(media_urls) == 1:
             media_url = media_urls[0].strip()
             print("FB: Uploading image:", media_url)
@@ -346,7 +343,6 @@ def post_to_facebook(content_type, media_urls, caption, access_token, fb_page_id
             print("FB IMAGE FAILED:", photo_result)
             return None
 
-        # ---- CAROUSEL ----
         else:
             fb_photo_ids = []
             for media_url in media_urls:
@@ -400,8 +396,6 @@ def archive_posted_rows():
         fresh_data = worksheet.get_all_records()
         fresh_df   = pd.DataFrame(fresh_data)
 
-        # FIXED: Only archive rows that are Posted + R2 Deleted + have a PostID
-        # This prevents old "Posted" rows without PostID from getting swept up
         posted_indices = [
             i for i, row in fresh_df.iterrows()
             if str(row.get("Status", "")).strip() == "Posted"
@@ -439,7 +433,7 @@ def archive_posted_rows():
 # STARTUP TELEGRAM PING
 # =========================
 
-send_telegram("🚀 <b>Scheduler V8 Started</b>")
+send_telegram("🚀 <b>Scheduler V8.1 Started</b>")
 
 # =========================
 # PROCESS POSTS
@@ -517,15 +511,10 @@ for index, row in df.iterrows():
 
         media_ids = []
 
-        # =========================
         # REEL
-        # =========================
-
         if content_type.lower() == "reel":
-
             media_url = media_urls[0].strip()
             print("Creating reel:", media_url)
-
             create_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
                 data={
@@ -537,7 +526,6 @@ for index, row in df.iterrows():
             )
             create_result = create_response.json()
             print(create_result)
-
             if "id" not in create_result:
                 err = str(create_result.get("error", {}).get("message", "Container failed"))
                 worksheet.update_cell(index + 2, 8, "Failed")
@@ -545,28 +533,20 @@ for index, row in df.iterrows():
                 failed_count += 1
                 send_telegram(f"❌ <b>REEL FAILED</b>: {brand}\n{err}")
                 continue
-
             creation_id = create_result["id"]
             ready = wait_for_media_ready(creation_id, ACCESS_TOKEN, max_wait=300)
-
             if not ready:
                 worksheet.update_cell(index + 2, 8, "Failed")
                 worksheet.update_cell(index + 2, 16, "Reel processing failed or timed out")
                 failed_count += 1
                 send_telegram(f"❌ <b>REEL TIMEOUT</b>: {brand}")
                 continue
-
             publish_result = publish_with_retry(IG_ACCOUNT_ID, creation_id, ACCESS_TOKEN)
 
-        # =========================
         # SINGLE IMAGE
-        # =========================
-
         elif len(media_urls) == 1:
-
             media_url = media_urls[0].strip()
             print("Creating image:", media_url)
-
             create_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
                 data={
@@ -577,7 +557,6 @@ for index, row in df.iterrows():
             )
             create_result = create_response.json()
             print(create_result)
-
             if "id" not in create_result:
                 err = str(create_result.get("error", {}).get("message", "Container failed"))
                 worksheet.update_cell(index + 2, 8, "Failed")
@@ -585,18 +564,12 @@ for index, row in df.iterrows():
                 failed_count += 1
                 send_telegram(f"❌ <b>IMAGE FAILED</b>: {brand}\n{err}")
                 continue
-
             print("Waiting for image processing...")
             time.sleep(30)
-
             publish_result = publish_with_retry(IG_ACCOUNT_ID, create_result["id"], ACCESS_TOKEN)
 
-        # =========================
         # CAROUSEL
-        # =========================
-
         else:
-
             for media_url in media_urls:
                 media_url = media_url.strip()
                 if not media_url:
@@ -614,13 +587,11 @@ for index, row in df.iterrows():
                 print(create_result)
                 if "id" in create_result:
                     media_ids.append(create_result["id"])
-
             if not media_ids:
                 worksheet.update_cell(index + 2, 8, "Failed")
                 worksheet.update_cell(index + 2, 16, "No carousel items created")
                 failed_count += 1
                 continue
-
             carousel_response = requests.post(
                 f"https://graph.facebook.com/v23.0/{IG_ACCOUNT_ID}/media",
                 data={
@@ -632,7 +603,6 @@ for index, row in df.iterrows():
             )
             carousel_result = carousel_response.json()
             print(carousel_result)
-
             if "id" not in carousel_result:
                 err = str(carousel_result.get("error", {}).get("message", "Carousel failed"))
                 worksheet.update_cell(index + 2, 8, "Failed")
@@ -640,21 +610,15 @@ for index, row in df.iterrows():
                 failed_count += 1
                 send_telegram(f"❌ <b>CAROUSEL FAILED</b>: {brand}\n{err}")
                 continue
-
             print("Waiting for carousel processing...")
             time.sleep(30)
-
             publish_result = publish_with_retry(IG_ACCOUNT_ID, carousel_result["id"], ACCESS_TOKEN)
 
-        # =========================
         # PUBLISH RESULT
-        # =========================
-
         print("Instagram Publish Result:")
         print(publish_result)
 
         if "id" in publish_result:
-
             worksheet.update_cell(index + 2, 8, "Posted")
             worksheet.update_cell(index + 2, 9, publish_result["id"])
             posted_count += 1
@@ -682,7 +646,6 @@ for index, row in df.iterrows():
             worksheet.update_cell(index + 2, 14, "Deleted" if delete_success else "DeleteFailed")
 
         else:
-
             err = str(publish_result.get("error", {}).get("message", "Publish failed"))
             worksheet.update_cell(index + 2, 8, "Failed")
             worksheet.update_cell(index + 2, 16, err)
@@ -691,7 +654,6 @@ for index, row in df.iterrows():
             send_telegram(f"❌ <b>POST FAILED</b>: {brand} ({content_type})\n{err}")
 
     except Exception as e:
-
         print("ERROR:", str(e))
         failed_count += 1
 
@@ -706,7 +668,7 @@ archive_posted_rows()
 # =========================
 
 summary = (
-    f"📊 <b>Scheduler Run Complete</b>\n"
+    f"📊 <b>Scheduler V8.1 Run Complete</b>\n"
     f"✅ Posted: {posted_count}\n"
     f"❌ Failed: {failed_count}\n"
     f"⏭️ Skipped: {skipped_count}"
