@@ -6,7 +6,7 @@ import pandas as pd
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("CAPTION REWRITER V1")
+print("CAPTION REWRITER V1.1")
 print("=================================")
 
 # =========================
@@ -28,6 +28,7 @@ df = pd.DataFrame(data)
 
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_MODEL   = "llama-3.3-70b-versatile"
 
 rewritten_count = 0
 
@@ -77,20 +78,26 @@ Rules:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama-3.3-70b-versatile",
+                "model": GROQ_MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.7,
                 "max_tokens": 1500
             },
             timeout=30
         )
-        result = response.json()
-        print(f"  Groq response: {result}")
-        if "choices" not in result:
-        print(f"  GROQ ERROR: {result.get('error', result)}")
-        continue
-        new_caption = result["choices"][0]["message"]["content"].strip()
 
+        result = response.json()
+        print(f"  Groq HTTP status : {response.status_code}")
+
+        if "error" in result:
+            print(f"  GROQ API ERROR   : {result['error']}")
+            continue
+
+        if "choices" not in result:
+            print(f"  GROQ UNEXPECTED  : {result}")
+            continue
+
+        new_caption = result["choices"][0]["message"]["content"].strip()
         print(f"  Rewritten   : {new_caption[:80]}...")
 
         # Col E (5) = Caption, Col O (15) = AI Rewrite Instruction
