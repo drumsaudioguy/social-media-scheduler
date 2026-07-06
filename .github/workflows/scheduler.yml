@@ -4,57 +4,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  scheduler:
-
+  schedule:
     runs-on: ubuntu-latest
-
     steps:
+      - name: Checkout
+        uses: actions/checkout@v3
 
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install Packages
-        run: |
-          pip install pandas
-          pip install requests
-          pip install gspread
-          pip install oauth2client
-          pip install boto3
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Run Scheduler
         env:
+          GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-
-          MEINL_PERC_TOKEN: ${{ secrets.MEINL_PERC_TOKEN }}
-          MEINL_PERC_IG_ID: ${{ secrets.MEINL_PERC_IG_ID }}
-
-          MEINL_CYM_TOKEN: ${{ secrets.MEINL_CYM_TOKEN }}
-          MEINL_CYM_IG_ID: ${{ secrets.MEINL_CYM_IG_ID }}
-
-          PEARL_TOKEN: ${{ secrets.PEARL_TOKEN }}
-          PEARL_IG_ID: ${{ secrets.PEARL_IG_ID }}
-
-          KM_TOKEN: ${{ secrets.KM_TOKEN }}
-          KM_IG_ID: ${{ secrets.KM_IG_ID }}
-
-          MSB_TOKEN: ${{ secrets.MSB_TOKEN }}
-          MSB_IG_ID: ${{ secrets.MSB_IG_ID }}
-
-          META_USER_TOKEN: ${{ secrets.META_USER_TOKEN }}
-          META_APP_ID: ${{ secrets.META_APP_ID }}
-          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
-
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-
-          ALERT_EMAIL_PASSWORD: ${{ secrets.ALERT_EMAIL_PASSWORD }}
-
+          META_USER_TOKEN:             ${{ secrets.META_USER_TOKEN }}
+          META_APP_ID:                 ${{ secrets.META_APP_ID }}
+          META_APP_SECRET:             ${{ secrets.META_APP_SECRET }}
+          PEARL_TOKEN:                 ${{ secrets.PEARL_TOKEN }}
+          PEARL_IG_ID:                 ${{ secrets.PEARL_IG_ID }}
+          MEINL_CYM_TOKEN:             ${{ secrets.MEINL_CYM_TOKEN }}
+          MEINL_CYM_IG_ID:             ${{ secrets.MEINL_CYM_IG_ID }}
+          MEINL_PERC_TOKEN:            ${{ secrets.MEINL_PERC_TOKEN }}
+          MEINL_PERC_IG_ID:            ${{ secrets.MEINL_PERC_IG_ID }}
+          MSB_TOKEN:                   ${{ secrets.MSB_TOKEN }}
+          MSB_IG_ID:                   ${{ secrets.MSB_IG_ID }}
+          KM_TOKEN:                    ${{ secrets.KM_TOKEN }}
+          KM_IG_ID:                    ${{ secrets.KM_IG_ID }}
+          R2_BUCKET_NAME:              ${{ secrets.R2_BUCKET_NAME }}
+          R2_ACCOUNT_ID:               ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID:            ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY:        ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          TELEGRAM_BOT_TOKEN:          ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID:            ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERT_EMAIL:                 ${{ secrets.ALERT_EMAIL }}
+          ALERT_EMAIL_PASSWORD:        ${{ secrets.ALERT_EMAIL_PASSWORD }}
+          UPTIME_PING_URL:             ${{ secrets.UPTIME_PING_URL }}
         run: python scheduler_v4.py
