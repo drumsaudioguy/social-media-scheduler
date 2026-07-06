@@ -5,13 +5,13 @@ import boto3
 import gspread
 import requests
 
-from datetime import datetime, date
+from datetime import datetime
 from zoneinfo import ZoneInfo
 from botocore.config import Config
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("R2 SCANNER V2.1")
+print("R2 SCANNER V3.0")
 print("=================================")
 
 # =========================
@@ -20,14 +20,16 @@ print("=================================")
 
 R2_BUCKET_NAME      = os.getenv("R2_BUCKET_NAME")
 R2_ACCOUNT_ID       = os.getenv("R2_ACCOUNT_ID")
-R2_ACCESS_KEY       = os.getenv("R2_ACCESS_KEY")
-R2_SECRET_KEY       = os.getenv("R2_SECRET_KEY")
+R2_ACCESS_KEY       = os.getenv("R2_ACCESS_KEY_ID")
+R2_SECRET_KEY       = os.getenv("R2_SECRET_ACCESS_KEY")
 R2_BASE_URL         = "https://pub-32b66fd1abca4fbb80e6e1facbabb289.r2.dev"
 R2_ENDPOINT         = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 
 GROQ_API_KEY        = os.getenv("GROQ_API_KEY")
-SPREADSHEET_ID      = os.getenv("SPREADSHEET_ID")
-GOOGLE_CREDENTIALS  = os.getenv("GOOGLE_CREDENTIALS")
+SPREADSHEET_ID      = os.getenv("GOOGLE_SHEET_ID")
+GOOGLE_CREDENTIALS  = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+TELEGRAM_BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID    = os.getenv("TELEGRAM_CHAT_ID")
 
 SHEET_NAME          = "Sheet1"
 
@@ -63,14 +65,38 @@ BRANDS = {
 }
 
 # =========================
+# TELEGRAM
+# =========================
+
+def send_telegram(message):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("TELEGRAM: Token or Chat ID missing, skipping")
+        return
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            data={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": message,
+                "parse_mode": "HTML"
+            },
+            timeout=10
+        )
+        print("TELEGRAM SENT:", response.status_code, response.text[:100])
+    except Exception as e:
+        print("TELEGRAM ERROR:", str(e))
+
+# =========================
 # GOOGLE SHEETS AUTH
 # =========================
 
 creds_dict = json.loads(GOOGLE_CREDENTIALS)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(
     creds_dict,
-    ["https://spreadsheets.google.com/feeds",
-     "https://www.googleapis.com/auth/drive"]
+    [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
 )
 gc = gspread.authorize(creds)
 spreadsheet = gc.open_by_key(SPREADSHEET_ID)
@@ -220,18 +246,122 @@ def get_next_publish_slot():
 
 def add_row_to_sheet(brand, content_type, media_urls_str, caption, publish_date, publish_time):
     new_row = [
-        brand,          # A - Brand
-        "Instagram",    # B - Platform
-        content_type,   # C - ContentType
-        publish_date,   # D - PublishDate
-        publish_time,   # E - PublishTime
-        media_urls_str, # F - MediaURLs
-        caption,        # G - Caption
-        "Pending",      # H - Status
-        "",             # I - PostID
-        "",             # J - TokenStatus
-        "",             # K - LastCheck
-        "",             # L - DataAccessExpiry
-        "",             # M - FacebookPostID
-        "",             # N - R2Status
-        "",             # O - AI Rewrite Instr
+        brand,
+        "Instagram",
+        content_type,
+        publish_date,
+        publish_time,
+        media_urls_str,
+        caption,
+        "Pending",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+    ]
+    worksheet.append_row(new_row, value_input_option="USER_ENTERED")
+    print(f"  ✅ Row added: {brand} | {content_type} | {publish_date} {publish_time}")
+
+# =========================
+# MAIN SCANNER LOGIC
+# =========================
+
+existing_urls = get_existing_media_urls()
+print(f"\nFound {len(existing_urls)} existing URLs in sheet")
+new_rows_added = 0
+
+for brand_name, brand_config in BRANDS.items():
+    folder = brand_config["r2_folder"]
+    tone   = brand_config["tone"]
+
+    print(f"\n--- Scanning: {brand_name} ({folder}/) ---")
+
+    # ── PHOTOS ──────────────────────────────────────────
+    photo_keys = [
+        k for k in list_r2_files(f"{folder}/Photos/")
+        if k.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
+    for key in photo_keys:
+        public_url = f"{R2_BASE_URL}/{key}"
+        if public_url in existing_urls:
+            print(f"  SKIP (exists): {key.split('/')[-1]}")
+            continue
+        print(f"  NEW Photo: {key.split('/')[-1]}")
+        caption = generate_caption(brand_name, "Image", [public_url], tone)
+        publish_date, publish_time = get_next_publish_slot()
+        add_row_to_sheet(brand_name, "Image", public_url, caption, publish_date, publish_time)
+        existing_urls.add(public_url)
+        new_rows_added += 1
+
+    # ── REELS ────────────────────────────────────────────
+    reel_keys = [
+        k for k in list_r2_files(f"{folder}/Reels/")
+        if k.lower().endswith(".mp4")
+    ]
+    reel_keys += [
+        k for k in list_r2_files(f"{folder}/Reel/")
+        if k.lower().endswith(".mp4")
+    ]
+    for key in reel_keys:
+        public_url = f"{R2_BASE_URL}/{key}"
+        if public_url in existing_urls:
+            print(f"  SKIP (exists): {key.split('/')[-1]}")
+            continue
+        print(f"  NEW Reel: {key.split('/')[-1]}")
+        caption = generate_caption(brand_name, "Reel", [public_url], tone)
+        publish_date, publish_time = get_next_publish_slot()
+        add_row_to_sheet(brand_name, "Reel", public_url, caption, publish_date, publish_time)
+        existing_urls.add(public_url)
+        new_rows_added += 1
+
+    # ── CAROUSEL ─────────────────────────────────────────
+    carousel_base = f"{folder}/Carousel/"
+    all_carousel_keys = [
+        k for k in list_r2_files(carousel_base)
+        if k.lower().endswith((".jpg", ".jpeg", ".png"))
+    ]
+
+    carousel_groups = {}
+    for key in all_carousel_keys:
+        parts = key.split("/")
+        if len(parts) >= 4:
+            subfolder = parts[2]
+        else:
+            subfolder = "default"
+        carousel_groups.setdefault(subfolder, []).append(key)
+
+    for subfolder, keys in carousel_groups.items():
+        urls = [f"{R2_BASE_URL}/{k}" for k in keys]
+        urls = sorted(urls, key=natural_sort_key)
+
+        if any(u in existing_urls for u in urls):
+            print(f"  SKIP Carousel (exists): {subfolder}")
+            continue
+
+        print(f"  NEW Carousel: {subfolder} ({len(urls)} images)")
+        media_urls_str = "|".join(urls)
+        caption = generate_caption(brand_name, "Carousel", urls, tone)
+        publish_date, publish_time = get_next_publish_slot()
+        add_row_to_sheet(brand_name, "Carousel", media_urls_str, caption, publish_date, publish_time)
+        for u in urls:
+            existing_urls.add(u)
+        new_rows_added += 1
+
+# =========================
+# SUMMARY
+# =========================
+
+print("\n=================================")
+print(f"R2 SCANNER FINISHED — {new_rows_added} new rows added")
+print("=================================")
+
+if new_rows_added > 0:
+    send_telegram(
+        f"🗂️ <b>R2 Scanner Complete</b>\n"
+        f"✅ {new_rows_added} new row(s) added to Sheet"
+    )
+else:
+    send_telegram("🗂️ <b>R2 Scanner Complete</b>\nNo new files found.")
