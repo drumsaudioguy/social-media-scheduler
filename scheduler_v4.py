@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("SOCIAL MEDIA SCHEDULER V8")
+print("SOCIAL MEDIA SCHEDULER V8.1")
 print("=================================")
 
 # =========================
@@ -448,11 +448,6 @@ send_telegram("🚀 <b>Scheduler V8 Started</b>")
 for index, row in df.iterrows():
 
     try:
-
-        worksheet.update_cell(
-            index + 2, 11,
-            datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%d-%m-%Y %H:%M:%S")
-        )
 
         status  = str(row["Status"]).strip()
         post_id = str(row["PostID"]).strip()
