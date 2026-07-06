@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 from oauth2client.service_account import ServiceAccountCredentials
 
 print("=================================")
-print("SOCIAL MEDIA SCHEDULER V7")
+print("SOCIAL MEDIA SCHEDULER V8")
 print("=================================")
 
 # =========================
@@ -400,10 +400,13 @@ def archive_posted_rows():
         fresh_data = worksheet.get_all_records()
         fresh_df   = pd.DataFrame(fresh_data)
 
+        # FIXED: Only archive rows that are Posted + R2 Deleted + have a PostID
+        # This prevents old "Posted" rows without PostID from getting swept up
         posted_indices = [
             i for i, row in fresh_df.iterrows()
             if str(row.get("Status", "")).strip() == "Posted"
             and str(row.get("R2Status", "")).strip() == "Deleted"
+            and str(row.get("PostID", "")).strip() != ""
         ]
 
         if not posted_indices:
@@ -436,7 +439,7 @@ def archive_posted_rows():
 # STARTUP TELEGRAM PING
 # =========================
 
-send_telegram("🚀 <b>Scheduler V7 Started</b>")
+send_telegram("🚀 <b>Scheduler V8 Started</b>")
 
 # =========================
 # PROCESS POSTS
@@ -673,8 +676,10 @@ for index, row in df.iterrows():
             if fb_post_id:
                 worksheet.update_cell(index + 2, 13, fb_post_id)
                 print("FACEBOOK POSTED SUCCESSFULLY:", fb_post_id)
+                send_telegram(f"✅ <b>FB POSTED</b>: {brand} — FB ID: {fb_post_id}")
             else:
                 print("FACEBOOK POST FAILED - Instagram was still successful")
+                send_telegram(f"⚠️ <b>FB FAILED</b>: {brand} (Instagram still posted OK)")
 
             print("Cleaning up R2 files...")
             urls_to_delete = [u.strip() for u in media_urls if u.strip()]
