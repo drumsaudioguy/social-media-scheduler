@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import requests
 import gspread
@@ -128,11 +129,24 @@ creds = ServiceAccountCredentials.from_json_keyfile_dict(
 
 client = gspread.authorize(creds)
 
-sheet = client.open_by_key(
-    os.environ["GOOGLE_SHEET_ID"]
-)
-
-worksheet = sheet.worksheet("Sheet1")
+# Retry connection up to 3 times for transient network errors
+for attempt in range(1, 4):
+    try:
+        print(f"Connecting to Google Sheet (attempt {attempt})...")
+        sheet = client.open_by_key(
+            os.environ["GOOGLE_SHEET_ID"]
+        )
+        worksheet = sheet.worksheet("Sheet1")
+        print("Connected successfully.")
+        break
+    except Exception as e:
+        print(f"Connection attempt {attempt} failed: {str(e)}")
+        if attempt == 3:
+            send_telegram(
+                f"\u274c <b>Caption Rewriter FAILED</b>\nCould not connect to Google Sheet after 3 attempts:\n{str(e)}"
+            )
+            raise
+        time.sleep(5)
 
 data = worksheet.get_all_records()
 
